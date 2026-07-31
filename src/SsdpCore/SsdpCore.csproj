@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>SsdpCore</AssemblyName>
+    <RootNamespace>SsdpCore</RootNamespace>
+    <LangVersion>latest</LangVersion>
+
+    <Version>0.5.0.1</Version>
+    <FileVersion>0.5.0.1</FileVersion>
+    <AssemblyVersion>0.5.0.1</AssemblyVersion>
+    <Copyright>Copyright (c) 2026 Halrad LLC</Copyright>
+    <Company>Halrad LLC</Company>
+    <Product>SsdpCore</Product>
+    <Description>Local network discovery library — SSDP, WS-Discovery, and mDNS/DNS-SD</Description>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Halrad.SsdpCore</PackageId>
+    <Authors>Halrad LLC</Authors>
+    <PackageDescription>Local network discovery library. SSDP (UPnP), WS-Discovery (Windows Network), and mDNS/DNS-SD — client and server roles.</PackageDescription>
+    <PackageTags>ssdp;upnp;discovery;multicast;dlna;mdns;dns-sd</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+
+</Project>

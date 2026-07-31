@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>firebug</AssemblyName>
+    <RootNamespace>Firebug.Cli</RootNamespace>
+    <LangVersion>latest</LangVersion>
+
+    <Version>0.4.9.0</Version>
+    <FileVersion>0.4.9.0</FileVersion>
+    <AssemblyVersion>0.4.9.0</AssemblyVersion>
+    <Copyright>Copyright (c) 2026 Halrad LLC</Copyright>
+    <Company>Halrad LLC</Company>
+    <Product>Firewall Configuration Utility</Product>
+    <AssemblyTitle>Firewall Configuration Utility</AssemblyTitle>
+    <Description>Firewall Configuration Utility</Description>
+
+    <!-- Embed the manifest for elevation -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PrivateAssets="all" ensures Firebug.dll gets merged, not copied -->
+    <ProjectReference Include="..\Firebug\Firebug.csproj" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.2">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ILRepack: Merge Firebug.dll into firebug.exe -->
+  <Target Name="ILRepack" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <ILRepackOutput>$(OutputPath)firebug.exe</ILRepackOutput>
+    </PropertyGroup>
+    <ItemGroup>
+      <ILRepackAssemblies Include="$(OutputPath)Firebug.dll" />
+    </ItemGroup>
+    <ILRepack
+      InputAssemblies="@(ILRepackAssemblies)"
+      MainAssembly="$(ILRepackOutput)"
+      OutputFile="$(ILRepackOutput)"
+      Internalize="true"
+      Parallel="true" />
+    <!-- Clean up merged DLL -->
+    <Delete Files="$(OutputPath)Firebug.dll" />
+  </Target>
+
+</Project>

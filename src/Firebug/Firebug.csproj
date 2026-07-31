@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net48;net8.0</TargetFrameworks>
+    <AssemblyName>Firebug</AssemblyName>
+    <RootNamespace>Firebug</RootNamespace>
+    <LangVersion>latest</LangVersion>
+
+    <Version>0.5.0.1</Version>
+    <FileVersion>0.5.0.1</FileVersion>
+    <AssemblyVersion>0.5.0.1</AssemblyVersion>
+    <Copyright>Copyright (c) 2026 Halrad LLC</Copyright>
+    <Company>Halrad LLC</Company>
+    <Product>Firebug</Product>
+    <Description>Windows Firewall and URL ACL configuration library</Description>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Halrad.Firebug</PackageId>
+    <Authors>Halrad LLC</Authors>
+    <PackageDescription>Windows Firewall and URL ACL configuration made simple. Add firewall rules and HTTP URL reservations with a clean API.</PackageDescription>
+    <PackageTags>firewall;windows;netsh;urlacl;http</PackageTags>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+  </PropertyGroup>
+
+</Project>
