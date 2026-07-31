@@ -1,4 +1,4 @@
-# Fireants Changelog
+# Firebug Changelog
 
 ## Firebug [0.2.0] - 2026-07-30
 

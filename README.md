@@ -1,4 +1,4 @@
-# Fireants
+# Firebug
 
 Shared .NET libraries for network and system configuration.
 
@@ -91,21 +91,25 @@ PortPicker.PickPair(8000);         // low port of first free adjacent pair (serv
 Firebug is BCL-only, so take it whichever way suits your project.
 
 **1. NuGet package** (once published):
+
 ```xml
 <PackageReference Include="Halrad.Firebug" Version="0.5.*" />
 ```
 
 **2. Bind the assembly** — reference the project or a dropped-in `Firebug.dll`:
+
 ```xml
 <ProjectReference Include="path\to\src\Firebug\Firebug.csproj" />
 <!-- or a compiled DLL: -->
 <Reference Include="Firebug"><HintPath>libs\Firebug.dll</HintPath></Reference>
 ```
+
 Firebug multi-targets `net48;net8.0`, so the same binary binds into .NET Framework
 4.8 plugins (e.g. MusicBee) and modern .NET alike.
 
 **3. Vendor the source (federate)** — zero dependency: copy just the file(s) you
 need into your own tree and change the namespace. They pull in nothing beyond the BCL:
+
 - `src/Firebug/PortPicker.cs` — free-port selection
 - `src/Firebug/FirebugManager.cs` — firewall + URL ACL
 
@@ -113,6 +117,7 @@ This is the friction-free path when you don't want another package in your graph
 Apache-2.0 asks only that you keep the license/attribution notice.
 
 **4. Shell out to the CLI** — no build-time reference at all:
+
 ```cmd
 firebug add --name "My App" --port 8000 --urlacl
 ```
@@ -125,6 +130,7 @@ dotnet build -c Release
 ```
 
 Output:
+
 - `src/Firebug/bin/Release/net48/Firebug.dll`
 - `src/Firebug.Cli/bin/Release/net48/firebug.exe`
 - `src/SsdpCore/bin/Release/net48/SsdpCore.dll`
@@ -137,9 +143,9 @@ SSDP (Simple Service Discovery Protocol) library for UPnP device discovery and a
 
 **Library:** `SsdpCore.dll` - Reference in your .NET projects
 
-| Class | Role | Use Case |
-|-------|------|----------|
-| `SsdpClient` | Discovery (M-SEARCH) | Find devices on the network |
+| Class        | Role                 | Use Case                             |
+| ------------ | -------------------- | ------------------------------------ |
+| `SsdpClient` | Discovery (M-SEARCH) | Find devices on the network          |
 | `SsdpServer` | Advertising (NOTIFY) | Announce your service to the network |
 
 ```csharp
@@ -165,17 +171,14 @@ See `src/SsdpCore/README.md` for full API documentation.
 
 ## Consumers
 
-- **MBXHub** - MusicBee REST API plugin (Firebug, SsdpCore)
-- **PhantomBee** - MusicBee UPnP streaming plugin (SsdpCore)
+- **[MBXHub](https://mbxhub.com/)** - MusicBee REST API plugin (Firebug, SsdpCore)
 - **MBXRemote/tntctl** - MusicBee remote control (Firebug)
-- **MusicBee Chromecast** - Chromecast integration
-- Future projects
+- ?yours goes here?
+- 
 
-## Why "Fireants"?
+## Why "Firebug"?
 
-Fire + ants = small but mighty. Also: firewall + antidotes.
-
-The Firebug component does the actual work.
+Firewall + the little setup bug it swats. Small tool, one fiddly job, handled.
 
 ## License
 
