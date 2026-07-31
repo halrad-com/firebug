@@ -167,6 +167,8 @@ server.Start();
 
 See `src/SsdpCore/README.md` for full API documentation.
 
+See: [DynaPort — a well-behaved listener port](https://mbxhub.com/downloads/examples/dynaport/)
+
 ---
 
 ## Consumers
