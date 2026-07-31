@@ -20,6 +20,5 @@ Apache-2.0 library + CLI. This is the direction, not a promise of dates.
   `firebug test` (TCP-connect probe to a host:port) and `firebug diagnose`
   (check + explain *why* a port is blocked); `list` is a nice-to-have. Until then
   the spec marks them "planned".
-- Diagnostics 
+- Diagnostics
 - Port conflict remediation help
-- 

@@ -174,7 +174,6 @@ See `src/SsdpCore/README.md` for full API documentation.
 - **[MBXHub](https://mbxhub.com/)** - MusicBee REST API plugin (Firebug, SsdpCore)
 - **MBXRemote/tntctl** - MusicBee remote control (Firebug)
 - ?yours goes here?
-- 
 
 ## Why "Firebug"?
 
