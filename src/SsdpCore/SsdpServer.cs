@@ -83,7 +83,7 @@ namespace SsdpCore
             _getLocationUrl = getLocationUrl ?? throw new ArgumentNullException(nameof(getLocationUrl));
             _serverString = serverString ?? throw new ArgumentNullException(nameof(serverString));
             _additionalTypes = additionalTypes != null ? new List<string>(additionalTypes) : new List<string>();
-            _log = log ?? ((_, __) => { });
+            _log = SsdpTrace.Wrap(log);
         }
 
         /// <summary>

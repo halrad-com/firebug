@@ -35,7 +35,7 @@ namespace SsdpCore
 
         public MdnsScanner(Action<TraceLevel, string> log = null)
         {
-            _log = log ?? ((_, __) => { });
+            _log = SsdpTrace.Wrap(log);
         }
 
         /// <summary>

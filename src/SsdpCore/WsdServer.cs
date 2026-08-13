@@ -63,7 +63,7 @@ namespace SsdpCore
         {
             _uuid = uuid ?? throw new ArgumentNullException(nameof(uuid));
             _getXAddrsUrl = getXAddrsUrl ?? throw new ArgumentNullException(nameof(getXAddrsUrl));
-            _log = log ?? ((_, __) => { });
+            _log = SsdpTrace.Wrap(log);
             _instanceId = Environment.TickCount & 0x7FFFFFFF;
         }
 

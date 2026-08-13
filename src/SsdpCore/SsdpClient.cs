@@ -33,7 +33,7 @@ namespace SsdpCore
         /// <param name="localAddress">Local address to bind to (null = IPAddress.Any)</param>
         public SsdpClient(Action<TraceLevel, string> log = null, IPAddress localAddress = null)
         {
-            _log = log ?? ((_, __) => { });
+            _log = SsdpTrace.Wrap(log);
             _localAddress = localAddress ?? IPAddress.Any;
         }
 
@@ -183,7 +183,13 @@ namespace SsdpCore
             }
 
             _log(TraceLevel.Info, $"Found device at {device.Location}");
-            DeviceFound?.Invoke(this, device);
+            // A throwing consumer handler must not read as a receive error in
+            // the listen loop — catch and attribute it honestly.
+            try { DeviceFound?.Invoke(this, device); }
+            catch (Exception ex)
+            {
+                _log(TraceLevel.Warning, $"DeviceFound handler threw: {ex.Message}");
+            }
         }
 
         /// <summary>

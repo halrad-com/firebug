@@ -1,5 +1,7 @@
 using System;
 using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace SsdpCore
 {
@@ -79,6 +81,17 @@ namespace SsdpCore
         /// Returns whether this device entry has expired based on MaxAge
         /// </summary>
         public bool IsExpired => DateTime.UtcNow > LastSeen.AddSeconds(MaxAge);
+
+        /// <summary>
+        /// Fetch this device's UPnP description XML (from <see cref="Location"/>)
+        /// and populate the description fields above. Convenience wrapper over
+        /// <see cref="SsdpDescription.FetchAsync"/> — never throws, returns false
+        /// if the device would not describe itself.
+        /// </summary>
+        public Task<bool> FetchDescriptionAsync(int timeoutMs = 1500, CancellationToken cancellationToken = default)
+        {
+            return SsdpDescription.FetchAsync(this, timeoutMs, cancellationToken);
+        }
 
         public override string ToString()
         {

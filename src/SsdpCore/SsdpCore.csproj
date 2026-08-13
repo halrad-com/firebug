@@ -6,9 +6,9 @@
     <RootNamespace>SsdpCore</RootNamespace>
     <LangVersion>latest</LangVersion>
 
-    <Version>0.5.0.1</Version>
-    <FileVersion>0.5.0.1</FileVersion>
-    <AssemblyVersion>0.5.0.1</AssemblyVersion>
+    <Version>0.5.0.2</Version>
+    <FileVersion>0.5.0.2</FileVersion>
+    <AssemblyVersion>0.5.0.2</AssemblyVersion>
     <Copyright>Copyright (c) 2026 Halrad LLC</Copyright>
     <Company>Halrad LLC</Company>
     <Product>SsdpCore</Product>

@@ -91,6 +91,12 @@ namespace SsdpCore
         /// <param name="mx">Maximum wait time in seconds (1-5 recommended)</param>
         public static string BuildMSearch(string searchTarget, int mx = 3)
         {
+            // ST is interpolated into a CRLF-framed message — a search target
+            // containing CR/LF would inject headers. Reject it here so no
+            // consumer has to remember to.
+            if (searchTarget != null && (searchTarget.IndexOf('\r') >= 0 || searchTarget.IndexOf('\n') >= 0))
+                throw new ArgumentException("Search target must not contain CR or LF characters.", nameof(searchTarget));
+
             var sb = new StringBuilder();
             sb.Append("M-SEARCH * HTTP/1.1").Append(Crlf);
             sb.Append($"HOST: {SsdpConstants.MulticastAddress}:{SsdpConstants.Port}").Append(Crlf);
