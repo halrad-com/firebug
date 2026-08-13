@@ -23,4 +23,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Firebug\Firebug.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The CLI is a net48 exe, so its pure line-editor logic is compiled in
+         by link rather than referenced — both files are BCL-only. -->
+    <Compile Include="..\..\src\Firebug.Cli\Completion.cs" Link="Cli\Completion.cs" />
+    <Compile Include="..\..\src\Firebug.Cli\LineEditor.cs" Link="Cli\LineEditor.cs" />
+  </ItemGroup>
 </Project>

@@ -16,9 +16,63 @@ namespace Firebug.Cli
         {
             if (args.Length == 0)
             {
+                // Bare invocation in a real console drops into the interactive
+                // prompt (Tab completes verbs, Up/Down history). Redirected
+                // stdin/stdout keeps the old contract: usage + exit 1, so
+                // scripts that misfire stay loud instead of hanging on ReadKey.
+                if (!Console.IsInputRedirected && !Console.IsOutputRedirected)
+                    return RunInteractive();
                 ShowUsage();
                 return 1;
             }
+
+            return Run(args);
+        }
+
+        /// <summary>
+        /// Interactive console — the worked example for the LineEditor /
+        /// ICompleter pattern (see LineEditor.cs). Each submitted line runs
+        /// through the same verb dispatch as a normal invocation, so add and
+        /// remove still self-elevate per command.
+        /// </summary>
+        static int RunInteractive()
+        {
+            Console.WriteLine("Firebug interactive — Tab completes verbs, Up/Down history, 'quit' to exit.");
+            var editor = new LineEditor(new VerbCompleter());
+            while (true)
+            {
+                var line = editor.ReadLine("firebug> ");
+                if (line == null) return 0;
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                if (trimmed == "quit" || trimmed == "exit") return 0;
+                Run(SplitArgs(trimmed));
+            }
+        }
+
+        /// <summary>Split a command line into args, honoring double quotes.</summary>
+        static string[] SplitArgs(string line)
+        {
+            var result = new System.Collections.Generic.List<string>();
+            var current = new System.Text.StringBuilder();
+            bool inQuotes = false;
+            foreach (var c in line)
+            {
+                if (c == '"') { inQuotes = !inQuotes; continue; }
+                if (char.IsWhiteSpace(c) && !inQuotes)
+                {
+                    if (current.Length > 0) { result.Add(current.ToString()); current.Clear(); }
+                    continue;
+                }
+                current.Append(c);
+            }
+            if (current.Length > 0) result.Add(current.ToString());
+            return result.ToArray();
+        }
+
+        static int Run(string[] args)
+        {
+            if (args.Length == 0) { ShowUsage(); return 1; }
 
             var command = args[0].ToLowerInvariant();
 
@@ -53,6 +107,18 @@ namespace Firebug.Cli
 
                 case "scan":
                     return HandleScan(args);
+
+                case "pick":
+                    return HandlePick(args);
+
+                case "reserve":
+                    // Elevation handled inside AFTER validation, so bad args
+                    // fail fast instead of triggering a pointless UAC prompt.
+                    return HandleReserve(fb, args);
+
+                case "help":
+                    ShowUsage();
+                    return 0;
 
                 default:
                     Console.WriteLine($"Unknown command: {command}");
@@ -116,6 +182,9 @@ namespace Firebug.Cli
             Console.WriteLine("  firebug open");
             Console.WriteLine("  firebug scan [--target <st>] [--duration <ms>] [--raw] [--verbose]");
             Console.WriteLine("  firebug scan --mdns <type[,type]> [--duration <ms>] [--verbose]");
+            Console.WriteLine("  firebug pick [--preferred <port>] [--saved <port>] [--pair] [--verbose]");
+            Console.WriteLine("  firebug reserve --name <AppName> --port <Port> [--protocol tcp|udp] [--pair] [--no-urlacl]");
+            Console.WriteLine("  firebug reserve --name <AppName> --pick [--preferred <port>] [--saved <port>] [--pair]");
             Console.WriteLine();
             Console.WriteLine("Examples:");
             Console.WriteLine("  firebug add --name MyApp --port 8080 --urlacl");
@@ -125,6 +194,9 @@ namespace Firebug.Cli
             Console.WriteLine("  firebug scan");
             Console.WriteLine("  firebug scan --target urn:schemas-upnp-org:device:MediaRenderer:1");
             Console.WriteLine("  firebug scan --mdns _airplay._tcp,_devialet._tcp");
+            Console.WriteLine("  firebug pick --preferred 8080");
+            Console.WriteLine("  firebug reserve --name MyApp --port 8080");
+            Console.WriteLine("  firebug reserve --name MyApp --pick --preferred 8080");
         }
 
         static int HandleAdd(FirebugManager fb, string[] args)
@@ -403,6 +475,178 @@ namespace Firebug.Cli
                 Console.WriteLine($"{devices.Count} device(s) found.");
                 return devices.Count > 0 ? 0 : 1;
             }
+        }
+
+        /// <summary>
+        /// Shared pick core: choose a port (honoring a saved one when still
+        /// free), print the parseable PORT:/SIDE: lines, and report whether the
+        /// result is actually bindable. PortPicker returns the preferred value
+        /// even when nothing is free — by design, so binds fail loudly — which
+        /// is why the result is probed again for the exit code.
+        /// </summary>
+        static bool DoPick(int preferred, int saved, bool pair, bool verbose, out int port)
+        {
+            Action<string> log = verbose ? (s => Console.WriteLine("  " + s)) : (Action<string>)null;
+
+            if (pair)
+            {
+                port = (saved > 0 && PortPicker.IsFree(saved) && PortPicker.IsFree(saved + 1))
+                    ? saved
+                    : PortPicker.PickPair(preferred, log: log);
+            }
+            else
+            {
+                port = PortPicker.Resolve(saved, preferred, log);
+            }
+
+            var ok = PortPicker.IsFree(port) && (!pair || PortPicker.IsFree(port + 1));
+            Console.WriteLine($"PORT: {port}");
+            if (pair) Console.WriteLine($"SIDE: {port + 1}");
+            if (!ok) Console.WriteLine($"Warning: no free {(pair ? "pair" : "port")} found near {preferred} — {port} is busy.");
+            return ok;
+        }
+
+        /// <summary>
+        /// Pick a free port — PortPicker's worked example. Pure and unelevated;
+        /// persist the printed port and 'firebug reserve' it. Exit 0 = the
+        /// printed port is bindable right now, 1 = nothing free was found.
+        /// </summary>
+        static int HandlePick(string[] args)
+        {
+            int preferred = 8000, saved = 0;
+            bool pair = false, verbose = false;
+
+            for (int i = 1; i < args.Length; i++)
+            {
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "--preferred":
+                        if (i + 1 < args.Length) int.TryParse(args[++i], out preferred);
+                        break;
+                    case "--saved":
+                        if (i + 1 < args.Length) int.TryParse(args[++i], out saved);
+                        break;
+                    case "--pair":
+                        pair = true;
+                        break;
+                    case "--verbose":
+                    case "-v":
+                        verbose = true;
+                        break;
+                }
+            }
+            if (preferred <= 0) preferred = 8000;
+
+            return DoPick(preferred, saved, pair, verbose, out _) ? 0 : 1;
+        }
+
+        /// <summary>
+        /// Reserve a port for an app: firewall rule + URL ACL in one verb — the
+        /// authorize half of the pick/reserve flow. With --pick it first runs
+        /// the pick (unelevated, so PORT: prints in the caller's console), then
+        /// re-launches elevated with the CONCRETE port. Validation happens
+        /// before any elevation so bad args never cost a UAC prompt.
+        /// </summary>
+        static int HandleReserve(FirebugManager fb, string[] args)
+        {
+            string name = null;
+            int port = 0;
+            string protocol = "tcp";
+            bool pair = false, urlacl = true, pick = false, verbose = false;
+            int preferred = 8000, saved = 0;
+
+            for (int i = 1; i < args.Length; i++)
+            {
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "--name":
+                    case "-n":
+                        if (i + 1 < args.Length) name = args[++i];
+                        break;
+                    case "--port":
+                    case "-p":
+                        if (i + 1 < args.Length) int.TryParse(args[++i], out port);
+                        break;
+                    case "--protocol":
+                        if (i + 1 < args.Length) protocol = args[++i].ToLowerInvariant();
+                        break;
+                    case "--pair":
+                        pair = true;
+                        break;
+                    case "--no-urlacl":
+                        urlacl = false;
+                        break;
+                    case "--pick":
+                        pick = true;
+                        break;
+                    case "--preferred":
+                        if (i + 1 < args.Length) int.TryParse(args[++i], out preferred);
+                        break;
+                    case "--saved":
+                        if (i + 1 < args.Length) int.TryParse(args[++i], out saved);
+                        break;
+                    case "--verbose":
+                    case "-v":
+                        verbose = true;
+                        break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                Console.WriteLine("Error: --name is required");
+                return 1;
+            }
+            if (pick)
+            {
+                if (!DoPick(preferred, saved, pair, verbose, out port))
+                    return 1;   // nothing free — do not reserve a busy port
+            }
+            if (port <= 0)
+            {
+                Console.WriteLine("Error: --port is required (or use --pick)");
+                return 1;
+            }
+
+            // URL ACLs are an http.sys concept; a UDP reservation is rule-only.
+            if (protocol == "udp") urlacl = false;
+
+            if (!IsElevated())
+            {
+                // Re-launch with the CONCRETE port — the elevated child must
+                // never re-pick and land somewhere different from what the
+                // caller just read off the PORT: line.
+                var concrete = new System.Collections.Generic.List<string>
+                    { "reserve", "--name", name, "--port", port.ToString(), "--protocol", protocol };
+                if (pair) concrete.Add("--pair");
+                if (!urlacl) concrete.Add("--no-urlacl");
+                return RelaunchElevated(concrete.ToArray());
+            }
+
+            var ports = pair ? $"{port},{port + 1}" : port.ToString();
+            Console.WriteLine($"Reserving {protocol.ToUpper()} port(s) {ports} for '{name}'...");
+
+            // Idempotent: replace this app's rules rather than stacking duplicates
+            // (same convention as the multi-port add path).
+            fb.RemoveRule(name, _ => { });
+
+            bool ok = protocol == "udp"
+                ? (pair ? fb.AddUdpRule(name, ports, Console.WriteLine) : fb.AddUdpInboundRule(name, port, Console.WriteLine))
+                : (pair ? fb.AddTcpRule(name, ports, Console.WriteLine) : fb.AddTcpInboundRule(name, port, Console.WriteLine));
+
+            if (urlacl)
+            {
+                Console.WriteLine($"Adding URL ACL for port {port}...");
+                fb.AddUrlAcl(port, "Everyone", Console.WriteLine);
+                if (pair)
+                {
+                    Console.WriteLine($"Adding URL ACL for port {port + 1}...");
+                    fb.AddUrlAcl(port + 1, "Everyone", Console.WriteLine);
+                }
+            }
+
+            Console.WriteLine(ok ? "Reserved." : "Reserve failed.");
+            return ok ? 0 : 1;
         }
 
         static int HandleStatus(FirebugManager fb)

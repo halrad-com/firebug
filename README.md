@@ -121,7 +121,15 @@ Apache-2.0 asks only that you keep the license/attribution notice.
 ```cmd
 firebug add --name "My App" --port 8000 --urlacl
 firebug scan --target urn:schemas-upnp-org:device:MediaRenderer:1
+firebug pick --preferred 8000
+firebug reserve --name "My App" --pick --preferred 8000
 ```
+
+The `pick`/`reserve` pair is the PortPicker + FirebugManager flow as commands:
+pick a free port (parseable `PORT:` output), then reserve it — firewall rule
+plus URL ACL — in one elevated step; `reserve --pick` does both at once. Run
+`firebug` bare in a terminal for an interactive prompt with Tab verb
+completion and history.
 
 ## Building
 

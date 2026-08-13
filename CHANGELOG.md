@@ -7,6 +7,15 @@
 ## Firebug.Cli [0.4.10.0] - 2026-08-13
 
 ### Added
+- **`firebug pick`** - free-port selection from the command line, the worked example for `PortPicker`
+  - `--preferred <port>` (default 8000), `--saved <port>` (reuse a persisted port when still free), `--pair` (adjacent pair for server + side-channel)
+  - Prints a parseable `PORT: <n>` (and `SIDE: <n+1>` for pairs); exit 0 = the printed port is bindable right now, 1 = nothing free
+  - Pure and unelevated - persist the port, then reserve it
+- **`firebug reserve`** - the authorize half: firewall rule **and** URL ACL for a known port in one verb
+  - `--name` + `--port` (or `--pick` with the pick flags for the combined pick-then-reserve flow: the pick runs unelevated so `PORT:` prints in your console, then the concrete port is reserved under UAC)
+  - `--pair` reserves both ports; `--no-urlacl` for rule-only; UDP reservations are rule-only automatically (URL ACLs are an http.sys concept)
+  - Idempotent - re-reserving replaces the app's rules instead of stacking duplicates; bad args fail fast **before** any UAC prompt
+- **Interactive console** - run `firebug` bare in a terminal for a prompt with **Tab verb completion**, ghost-text suggestions, and Up/Down history; `quit` to leave. Redirected/scripted invocations keep the old usage + exit 1 contract. The line editor is a pure, unit-tested state machine (`LineEditorLogic`) driving a dumb painter - the same console pattern as the Huddle orchestrator, staged here as a reusable worked example
 - **`firebug scan`** - network discovery from the command line, and the worked example for SsdpCore's client side
   - `firebug scan` - SSDP sweep (`ssdp:all`), results named from each device's description
   - `--target <st>` - specific search target (e.g. `urn:schemas-upnp-org:device:MediaRenderer:1`)
