@@ -10,8 +10,8 @@ namespace SsdpCore
 {
     /// <summary>
     /// One-shot SSDP discovery sweep — the M-SEARCH counterpart of
-    /// <see cref="MdnsScanner"/>, with the same call shape: construct with an
-    /// optional log callback, call <c>ScanAsync</c>, get a deduplicated list.
+    /// <see cref="MdnsScanner"/>: construct with an optional log callback,
+    /// call <c>ScanAsync</c>, get a deduplicated list.
     ///
     /// Built on <see cref="SsdpClient"/> (which owns the socket, multicast join
     /// and response parsing): starts listening, sends M-SEARCH for each search
@@ -37,7 +37,7 @@ namespace SsdpCore
         private readonly CancellationTokenSource _disposeCts = new CancellationTokenSource();
         private readonly object _scanLock = new object();
         private volatile bool _scanning;
-        private bool _disposed;
+        private volatile bool _disposed;
 
         /// <summary>Raised once per unique device as it is discovered during a scan.</summary>
         public event EventHandler<SsdpDevice> DeviceFound;
@@ -55,6 +55,8 @@ namespace SsdpCore
         /// <summary>
         /// Convenience overload for a single search target
         /// (e.g. <see cref="SsdpConstants.SearchTargetMediaRenderer"/>).
+        /// One scan runs at a time per instance — a concurrent call logs a
+        /// warning and returns an empty list.
         /// </summary>
         public Task<List<SsdpDevice>> ScanAsync(
             string searchTarget,
@@ -71,6 +73,8 @@ namespace SsdpCore
         /// deduplicated by device address + type and, unless
         /// <paramref name="fetchDescriptions"/> is false, enriched with the
         /// name fields from each device's description XML before returning.
+        /// One scan runs at a time per instance — a concurrent call logs a
+        /// warning and returns an empty list.
         /// </summary>
         public async Task<List<SsdpDevice>> ScanAsync(
             IEnumerable<string> searchTargets,
@@ -220,8 +224,13 @@ namespace SsdpCore
         {
             if (_disposed) return;
             _disposed = true;
+            // Cancel, never Dispose: an in-flight ScanAsync holds a token source
+            // LINKED to this one (consumers genuinely dispose the scanner while a
+            // scan is running — a sibling task throwing out of a using block is
+            // enough), and disposing a CTS others are linked to is a race that
+            // surfaces as ObjectDisposedException from CreateLinkedTokenSource.
+            // A process-lifetime CTS with no timer leaks nothing worth the race.
             try { _disposeCts.Cancel(); } catch { }
-            _disposeCts.Dispose();
             DeviceFound = null;
         }
     }

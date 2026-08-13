@@ -160,6 +160,10 @@ each device's description so results come back named:
 ```csharp
 public class SsdpScanner : IDisposable
 {
+    // localAddress: NIC to scan from on multi-homed hosts
+    // (null = first non-virtual IPv4 interface)
+    public SsdpScanner(Action<TraceLevel, string> log = null, IPAddress localAddress = null);
+
     // Fires once per unique device at DISCOVERY time (before description fetch)
     public event EventHandler<SsdpDevice> DeviceFound;
 

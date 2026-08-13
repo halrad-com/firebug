@@ -29,7 +29,7 @@ namespace SsdpCore
         private readonly CancellationTokenSource _disposeCts = new CancellationTokenSource();
         private readonly object _scanLock = new object();
         private volatile bool _scanning;
-        private bool _disposed;
+        private volatile bool _disposed;
 
         public event EventHandler<MdnsService> ServiceFound;
 
@@ -520,8 +520,10 @@ namespace SsdpCore
         {
             if (_disposed) return;
             _disposed = true;
+            // Cancel, never Dispose — same reasoning as SsdpScanner.Dispose: an
+            // in-flight ScanAsync links to this CTS, and disposing a CTS others
+            // are linked to races into ObjectDisposedException.
             try { _disposeCts.Cancel(); } catch { }
-            _disposeCts.Dispose();
             ServiceFound = null;
         }
     }

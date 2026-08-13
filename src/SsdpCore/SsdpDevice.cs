@@ -86,11 +86,15 @@ namespace SsdpCore
         /// Fetch this device's UPnP description XML (from <see cref="Location"/>)
         /// and populate the description fields above. Convenience wrapper over
         /// <see cref="SsdpDescription.FetchAsync"/> — never throws, returns false
-        /// if the device would not describe itself.
+        /// if the device would not describe itself (or the fetch was refused as
+        /// off-LAN; pass <paramref name="log"/> to see which).
         /// </summary>
-        public Task<bool> FetchDescriptionAsync(int timeoutMs = 1500, CancellationToken cancellationToken = default)
+        public Task<bool> FetchDescriptionAsync(
+            int timeoutMs = SsdpDescription.DefaultTimeoutMs,
+            CancellationToken cancellationToken = default,
+            Action<System.Diagnostics.TraceLevel, string> log = null)
         {
-            return SsdpDescription.FetchAsync(this, timeoutMs, cancellationToken);
+            return SsdpDescription.FetchAsync(this, timeoutMs, cancellationToken, log);
         }
 
         public override string ToString()

@@ -67,6 +67,13 @@ namespace SsdpCore
         /// <param name="cancellationToken">Optional external cancellation.</param>
         /// <param name="log">Optional logging callback (failures log at Verbose).</param>
         /// <returns>true if the description was fetched and parsed.</returns>
+        /// <remarks>
+        /// The fetch is refused (returns false) unless the LOCATION host is an
+        /// IP literal in: 10/8, 172.16/12, 192.168/16, 169.254/16 (IPv4, mapped
+        /// IPv6 unwrapped), fe80::/10 or fc00::/7 (IPv6). DNS names, loopback,
+        /// CGNAT (100.64/10) and everything else are refused. Redirects are
+        /// followed at most 3 hops, each re-validated by the same rule.
+        /// </remarks>
         public static async Task<bool> FetchAsync(
             SsdpDevice device,
             int timeoutMs = DefaultTimeoutMs,
@@ -76,6 +83,13 @@ namespace SsdpCore
             log = SsdpTrace.Wrap(log);
             if (device == null || string.IsNullOrEmpty(device.Location))
                 return false;
+            if (timeoutMs <= 0)
+            {
+                // CancelAfter(0) leaves no budget and a negative value throws —
+                // name the caller's mistake instead of a generic fetch failure.
+                log(TraceLevel.Verbose, $"Refusing description fetch — invalid timeoutMs {timeoutMs}");
+                return false;
+            }
 
             if (!IsLanScopedLocation(device.Location, out var locationUri))
             {
@@ -85,7 +99,7 @@ namespace SsdpCore
 
             try
             {
-                string xml;
+                byte[] bytes;
                 using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
                     // ONE deadline for the whole redirect chain — the clock is
@@ -135,16 +149,8 @@ namespace SsdpCore
                         // Bytes, not ReadAsStringAsync: embedded devices routinely
                         // send Content-Type charsets .NET rejects as invalid (WiiM
                         // and GUPnP both send charset="utf-8" WITH quotes, which
-                        // throws on .NET Framework). The header is untrustworthy;
-                        // decode as BOM-sniffed UTF-8, which is what UPnP
-                        // descriptions are in practice.
-                        var bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                        using (var reader = new System.IO.StreamReader(
-                            new System.IO.MemoryStream(bytes), System.Text.Encoding.UTF8,
-                            detectEncodingFromByteOrderMarks: true))
-                        {
-                            xml = reader.ReadToEnd();
-                        }
+                        // throws on .NET Framework). The header is untrustworthy.
+                        bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                     }
                     finally
                     {
@@ -152,7 +158,11 @@ namespace SsdpCore
                     }
                 }
 
-                var doc = XDocument.Parse(xml);
+                // XDocument.Load(Stream) does full BOM *and* XML-declaration
+                // encoding detection natively — a plain BOM-sniffed UTF-8 read
+                // silently mojibakes <?xml encoding="iso-8859-1"?> documents and
+                // fails BOM-less UTF-16. DTDs stay prohibited by default (XXE-safe).
+                var doc = XDocument.Load(new System.IO.MemoryStream(bytes));
                 // First <device> in document order is the root device; embedded
                 // devices sit deeper inside its <deviceList> and come later.
                 var root = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "device");
@@ -193,6 +203,18 @@ namespace SsdpCore
             if (!Uri.TryCreate(location, UriKind.Absolute, out var parsed)) return false;
             if (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps) return false;
             if (!IPAddress.TryParse(parsed.Host.Trim('[', ']'), out var ip)) return false;
+
+            // A dual-stack device may advertise an IPv4-mapped IPv6 literal
+            // (http://[::ffff:10.0.0.5]/). Unwrap it so the IPv4 rules apply —
+            // and rewrite the URI onto the plain IPv4 form, because net48's HTTP
+            // stack cannot connect to a v4-mapped literal at all (measured: curl
+            // reaches it, HttpClient errors before sending).
+            if (ip.IsIPv4MappedToIPv6)
+            {
+                ip = ip.MapToIPv4();
+                try { parsed = new UriBuilder(parsed) { Host = ip.ToString() }.Uri; }
+                catch { return false; }
+            }
 
             if (ip.AddressFamily == AddressFamily.InterNetwork)
             {

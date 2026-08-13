@@ -1,5 +1,9 @@
 # Firebug Changelog
 
+> **SsdpCore version labels:** entries use shipped assembly-file versions (0.5.0.x).
+> Earlier drafts of this file - and some pre-relabel commit messages - referred to
+> the two SsdpCore entries below as 1.1.0 / 1.0.0.
+
 ## SsdpCore [0.5.0.2] - 2026-08-12
 
 ### Added
@@ -28,6 +32,15 @@
 - SsdpCore now makes its first HTTP use (`HttpClient`, in-box BCL - still no external packages): the description fetch. All discovery wire protocols remain pure UDP multicast.
 - `SsdpScanner` constructor accepts an optional `localAddress` to scan from a specific NIC on multi-homed hosts (default remains the first non-virtual IPv4 interface)
 - Description decoding reads raw bytes with BOM sniffing instead of trusting `Content-Type` - real devices (WiiM, GUPnP/Devialet) send quoted charsets that .NET Framework rejects as invalid
+
+### Fixed
+- Package license now matches the repository: `Apache-2.0` (the csproj had said `MIT` since the initial commit; the repo `LICENSE` has always been Apache-2.0)
+- `AssemblyVersion` pinned at 0.5.0.0 - it is the net48 binding identity, so patch bumps no longer break compiled consumers (`Firebug.csproj` gets the same pin)
+- Description XML decoding honors the XML declaration's `encoding` attribute (`XDocument.Load(Stream)`) - ISO-8859-1 vendor names no longer silently mojibake, and BOM-less UTF-16 documents now parse; `Content-Type` remains untrusted and DTDs remain prohibited
+- IPv4-mapped IPv6 LOCATIONs (`http://[::ffff:10.0.0.5]/`) unwrap to their IPv4 form - both for the LAN gate (was refused) and for the connection itself (net48's HTTP stack cannot reach a v4-mapped literal; measured)
+- `SsdpDevice.FetchDescriptionAsync` uses the shared `DefaultTimeoutMs` (a divergent hardcoded 1500 remained) and now forwards a log callback, so LAN-gate refusals on the convenience path are diagnosable
+- Disposing a scanner mid-scan no longer races an in-flight linked token source (`Cancel` without `Dispose`, applied to both scanners)
+- NuGet metadata completed: XML docs shipped with the package (`GenerateDocumentationFile`), `RepositoryUrl`, `PackageProjectUrl`, `PackageReadmeFile`
 
 ### Consumers
 - MBXHub `POST /devices/endpoints/scan?protocol=ssdp` - LAN MediaRenderer sweep (WiiM/LinkPlay device scan in the WiiM charm)
