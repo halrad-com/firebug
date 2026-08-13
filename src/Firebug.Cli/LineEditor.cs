@@ -33,9 +33,11 @@ namespace Firebug.Cli
 
     public static class LineEditorLogic
     {
-        // Ghost = remainder of the best completion of the *whole current buffer*
-        // (v1 completes the first token only; VerbCompleter returns empty once a
-        // space is present, so the ghost naturally disappears after the verb).
+        // Ghost = remainder of the best completion of the *whole current buffer*,
+        // falling back to the completer's Hint when nothing is completable. The
+        // hint rides the same Ghost channel (painted dim, after the buffer) but
+        // is never acceptable: Tab consults Complete directly, which is empty
+        // whenever only a hint is showing, so Tab stays a no-op on hints for free.
         private static string ComputeGhost(string buffer, ICompleter completer)
         {
             // An empty buffer has no ghost: Complete("") returns the whole verb list,
@@ -43,9 +45,12 @@ namespace Firebug.Cli
             // the line.
             if (buffer.Length == 0) return "";
             var matches = completer.Complete(buffer);
-            if (matches.Count == 0) return "";
-            var top = matches[0];
-            return top.Length > buffer.Length ? top.Substring(buffer.Length) : "";
+            if (matches.Count > 0)
+            {
+                var top = matches[0];
+                return top.Length > buffer.Length ? top.Substring(buffer.Length) : "";
+            }
+            return completer.Hint(buffer);
         }
 
         private static EditState WithBuffer(EditState s, string buffer, int cursor, ICompleter completer)
@@ -167,6 +172,30 @@ namespace Firebug.Cli
     }
 
     /// <summary>
+    /// Pure single-row viewport math for the renderer: given the row width and
+    /// the line's parts, decide which slice of the buffer is visible, how much
+    /// ghost fits after it, and where the caret lands. The renderer never
+    /// paints past width-2 (the final column would wrap to the next row, and
+    /// wrapping is what desyncs the row anchor). Long input horizontally
+    /// scrolls instead: the window slides to keep the caret visible.
+    /// (Ported from huddle 0f28fd5 alongside the flicker-free Render.)
+    /// </summary>
+    public readonly record struct LineViewport(int Start, int Take, int GhostTake, int CaretCol)
+    {
+        public static LineViewport Compute(int promptLen, int width, int bufferLen, int ghostLen, int cursor)
+        {
+            var row = Math.Max(0, width - 1);            // usable cells on the row
+            var avail = Math.Max(0, row - promptLen);    // cells after the prompt
+            // Slide the window only when the caret would fall off the right edge.
+            var start = cursor > avail ? cursor - avail : 0;
+            var take = Math.Min(bufferLen - start, avail);
+            var ghostTake = Math.Max(0, Math.Min(ghostLen, avail - take));
+            var caretCol = Math.Min(promptLen + (cursor - start), Math.Max(0, row));
+            return new LineViewport(start, Math.Max(0, take), ghostTake, Math.Max(0, caretCol));
+        }
+    }
+
+    /// <summary>
     /// The interactive half: owns the console (keys in, pixels out) and drives
     /// the pure state machine. Do not use when stdin is redirected —
     /// Console.ReadKey has no meaning there.
@@ -187,6 +216,7 @@ namespace Firebug.Cli
         public string? ReadLine(string prompt)
         {
             var s = EditState.Empty;
+            _prevPaint = 0; _prevRow = -1;   // fresh row: nothing of ours on it yet
             Render(prompt, s);
 
             while (true)
@@ -224,44 +254,72 @@ namespace Firebug.Cli
             while (_history.Count > _cap) _history.RemoveAt(_history.Count - 1);
         }
 
-        // Always a full-line redraw. Tab and history nav replace the buffer
-        // wholesale and can *shorten* it, so append-only drawing would leave
-        // stale characters behind.
-        private static void Render(string prompt, EditState s)
+        // Cells this editor painted on the current row last time (prompt +
+        // buffer + ghost). Lets Render erase only the shrunken tail instead of
+        // blanking the whole row first — the blank-then-repaint made the line
+        // visibly flash and the caret teleport on every keystroke. _prevRow
+        // guards the arithmetic: a scroll moves the edit to a different row,
+        // where "what we painted last time" is meaningless — detect the move
+        // and start the new row from zero. (Ported from huddle 0f28fd5.)
+        private int _prevPaint;
+        private int _prevRow = -1;
+
+        // Full repaint of the line's CONTENT each keystroke (Tab and history
+        // nav can shorten the buffer), but no whole-row blank: overwrite in
+        // place, erase only the tail the previous paint left behind, and hide
+        // the caret while painting so it doesn't visibly teleport.
+        //
+        // Single-row invariant: nothing is ever written past column width-2,
+        // so the paint can never wrap and the row anchor (Console.CursorTop)
+        // stays valid. Input longer than the row horizontally scrolls via
+        // LineViewport.
+        private void Render(string prompt, EditState s)
         {
             try
             {
+                Console.CursorVisible = false;
+
                 int row = Console.CursorTop;
                 int width = Console.WindowWidth;
+                if (row != _prevRow) { _prevPaint = 0; _prevRow = row; }
+
+                var v = LineViewport.Compute(prompt.Length, width, s.Buffer.Length, s.Ghost.Length, s.Cursor);
 
                 Console.SetCursorPosition(0, row);
-                // Width-1 spaces: writing the final column would wrap to the next row.
-                Console.Write(new string(' ', Math.Max(0, width - 1)));
-                Console.SetCursorPosition(0, row);
-
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.Write(prompt);
                 Console.ResetColor();
-                Console.Write(s.Buffer);
+                Console.Write(s.Buffer.Substring(v.Start, v.Take));
 
-                if (s.Ghost.Length > 0)
+                if (v.GhostTake > 0)
                 {
                     // The ghost belongs at the END of the buffer, not at the caret:
                     // it is only recomputed on edits, so on a cursor-only move a
                     // caret-anchored ghost would show a completion of text it no
                     // longer follows.
                     Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.Write(s.Ghost);
+                    Console.Write(s.Ghost.Substring(0, v.GhostTake));
                     Console.ResetColor();
                 }
 
-                // Caret sits inside the buffer, ahead of any ghost text.
-                var col = Math.Max(0, Math.Min(prompt.Length + s.Cursor, Math.Max(0, width - 1)));
-                Console.SetCursorPosition(col, row);
+                // Erase only what the previous paint wrote beyond this one.
+                var painted = prompt.Length + v.Take + v.GhostTake;
+                var stale = Math.Min(_prevPaint, Math.Max(0, width - 1)) - painted;
+                if (stale > 0) Console.Write(new string(' ', stale));
+                _prevPaint = painted;
+
+                Console.SetCursorPosition(v.CaretCol, row);
             }
             catch (System.IO.IOException) { /* not a real console (redirected) */ }
             catch (ArgumentOutOfRangeException) { /* window too small / resized mid-draw */ }
-            finally { Console.ResetColor(); }
+            finally
+            {
+                // A throw between ForegroundColor and ResetColor would otherwise
+                // leave the console cyan or grey; caret visibility is restored
+                // the same way, or a mid-render throw would leave it hidden.
+                Console.ResetColor();
+                try { Console.CursorVisible = true; } catch (System.IO.IOException) { }
+            }
         }
     }
 }

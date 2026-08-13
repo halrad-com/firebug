@@ -128,8 +128,21 @@ firebug reserve --name "My App" --pick --preferred 8000
 The `pick`/`reserve` pair is the PortPicker + FirebugManager flow as commands:
 pick a free port (parseable `PORT:` output), then reserve it — firewall rule
 plus URL ACL — in one elevated step; `reserve --pick` does both at once. Run
-`firebug` bare in a terminal for an interactive prompt with Tab verb
-completion and history.
+`firebug` bare in a terminal for an interactive prompt with Tab completion of
+verbs and flags, grammar hints, and history.
+
+### Tab completion (PowerShell)
+
+One line in your profile registers shell tab-completion for `firebug`:
+
+```powershell
+firebug completion powershell | Out-String | Invoke-Expression
+```
+
+Then `firebug re<Tab>` cycles `remove`/`reserve`, and `firebug reserve --p<Tab>`
+completes that verb's flags. The script is generated at runtime from the CLI's
+own command catalog — the same table the parser parity tests pin — so
+completion cannot drift from what the tool actually accepts.
 
 ## Building
 

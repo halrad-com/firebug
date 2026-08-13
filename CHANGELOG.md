@@ -7,6 +7,9 @@
 ## Firebug.Cli [0.4.10.0] - 2026-08-13
 
 ### Added
+- **`firebug completion powershell`** - shell tab-completion, generated at runtime from the CLI's own command catalog (one profile line: `firebug completion powershell | Out-String | Invoke-Expression`). Script is side-effect-free, never required for the tool to function, and safe in constrained sessions
+- **`CommandCatalog`** - machine-readable catalog of every verb and flag (net48-safe plain shapes, per the cross-repo completion spec, so other tools can copy it). The completion emitter, the interactive completer and the parity self-tests all read this one table; bidirectional source-level tests pin it against the hand parsers so the two cannot drift
+- **Interactive prompt upgrades** - Tab now completes the current verb's *flags* too (long and short forms), a dim grammar hint appears the moment you type `verb ` (Tab-immune - hints are guidance, not candidates), and the renderer is wrap-proof: long lines horizontally scroll inside a single row instead of wrapping and desyncing the caret, with flicker-free in-place repaints (`LineViewport`, ported from the Huddle console)
 - **`firebug pick`** - free-port selection from the command line, the worked example for `PortPicker`
   - `--preferred <port>` (default 8000), `--saved <port>` (reuse a persisted port when still free), `--pair` (adjacent pair for server + side-channel)
   - Prints a parseable `PORT: <n>` (and `SIDE: <n+1>` for pairs); exit 0 = the printed port is bindable right now, 1 = nothing free

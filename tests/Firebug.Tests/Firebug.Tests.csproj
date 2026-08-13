@@ -30,5 +30,7 @@
     <Compile Include="..\..\src\Firebug.Cli\Completion.cs" Link="Cli\Completion.cs" />
     <Compile Include="..\..\src\Firebug.Cli\LineEditor.cs" Link="Cli\LineEditor.cs" />
     <Compile Include="..\..\src\Firebug.Cli\CliText.cs" Link="Cli\CliText.cs" />
+    <Compile Include="..\..\src\Firebug.Cli\CommandCatalog.cs" Link="Cli\CommandCatalog.cs" />
+    <Compile Include="..\..\src\Firebug.Cli\CompletionEmitter.cs" Link="Cli\CompletionEmitter.cs" />
   </ItemGroup>
 </Project>

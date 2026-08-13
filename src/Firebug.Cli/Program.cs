@@ -44,7 +44,7 @@ namespace Firebug.Cli
             // finally{ResetColor} never runs — without this a Ctrl+C landing
             // mid-paint leaves the operator's console cyan for the session.
             Console.CancelKeyPress += (s, e) => { Console.ResetColor(); /* e.Cancel stays false */ };
-            var editor = new LineEditor(new VerbCompleter());
+            var editor = new LineEditor(new FirebugArgCompleter());
             while (true)
             {
                 var line = editor.ReadLine("firebug> ");
@@ -113,6 +113,9 @@ namespace Firebug.Cli
                     // Elevation handled inside AFTER validation, so bad args
                     // fail fast instead of triggering a pointless UAC prompt.
                     return HandleReserve(fb, args);
+
+                case "completion":
+                    return HandleCompletion(args);
 
                 case "help":
                     ShowUsage();
@@ -187,6 +190,7 @@ namespace Firebug.Cli
             Console.WriteLine("  firebug pick [--preferred <port>] [--saved <port>] [--pair] [--verbose]");
             Console.WriteLine("  firebug reserve --name <AppName> --port <Port> [--protocol tcp|udp] [--pair] [--no-urlacl]");
             Console.WriteLine("  firebug reserve --name <AppName> --pick [--preferred <port>] [--saved <port>] [--pair]");
+            Console.WriteLine("  firebug completion powershell   (print a tab-completion script for your profile)");
             Console.WriteLine();
             Console.WriteLine("Examples:");
             Console.WriteLine("  firebug add --name MyApp --port 8080 --urlacl");
@@ -199,6 +203,24 @@ namespace Firebug.Cli
             Console.WriteLine("  firebug pick --preferred 8080");
             Console.WriteLine("  firebug reserve --name MyApp --port 8080");
             Console.WriteLine("  firebug reserve --name MyApp --pick --preferred 8080");
+            Console.WriteLine("  firebug completion powershell | Out-String | Invoke-Expression");
+        }
+
+        /// <summary>
+        /// Print a shell tab-completion script generated from the command
+        /// catalog. Script to stdout only; diagnostics to stderr, so
+        /// `... | Invoke-Expression` can never swallow an error as script text.
+        /// </summary>
+        static int HandleCompletion(string[] args)
+        {
+            var shell = args.Length >= 2 ? args[1].ToLowerInvariant() : null;
+            if (shell == "powershell")
+            {
+                Console.Write(CompletionEmitter.EmitPowerShell());
+                return 0;
+            }
+            Console.Error.WriteLine("Usage: firebug completion powershell");
+            return 1;
         }
 
         static int HandleAdd(FirebugManager fb, string[] args)
