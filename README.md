@@ -139,21 +139,29 @@ Output:
 
 ### SsdpCore
 
-SSDP (Simple Service Discovery Protocol) library for UPnP device discovery and advertising.
+Local-network discovery library — SSDP (UPnP), mDNS/DNS-SD, and WS-Discovery.
+Find devices, name them, and advertise your own service.
 
 **Library:** `SsdpCore.dll` - Reference in your .NET projects
 
-| Class        | Role                 | Use Case                             |
-| ------------ | -------------------- | ------------------------------------ |
-| `SsdpClient` | Discovery (M-SEARCH) | Find devices on the network          |
-| `SsdpServer` | Advertising (NOTIFY) | Announce your service to the network |
+| Class             | Role                        | Use Case                                                    |
+| ----------------- | --------------------------- | ----------------------------------------------------------- |
+| `SsdpScanner`     | One-shot SSDP sweep         | "What's on the network right now?" — scan, get named devices |
+| `SsdpClient`      | Continuous SSDP (M-SEARCH)  | Long-lived listening with an event per device                |
+| `SsdpServer`      | Advertising (NOTIFY)        | Announce your service to the network                         |
+| `SsdpDescription` | Device description fetch    | Name a device from its UPnP description XML (LAN-scoped, hardened) |
+| `MdnsScanner`     | One-shot mDNS/DNS-SD sweep  | Find Bonjour/Zeroconf services (AirPlay, Devialet, ...)      |
+| `WsdServer`       | WS-Discovery responder      | Appear in Windows' Network view                              |
+| `SsdpTrace`       | Logging switch              | Dial library log output up or down (hard errors always log)  |
 
 ```csharp
-// Client: Find devices
-var client = new SsdpClient();
-client.DeviceFound += (s, device) => Console.WriteLine(device.Location);
-client.StartListening();
-client.SendSearch("ssdp:all");
+// One-shot sweep: deduplicated devices, named from their descriptions
+using (var scanner = new SsdpScanner())
+{
+    var devices = await scanner.ScanAsync(SsdpConstants.SearchTargetMediaRenderer);
+    foreach (var d in devices)
+        Console.WriteLine($"{d.FriendlyName} ({d.ModelName}) at {d.Address}");
+}
 
 // Server: Advertise a service
 var server = new SsdpServer(
