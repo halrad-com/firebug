@@ -22,6 +22,18 @@
     <PackageDescription>Windows Firewall and URL ACL configuration made simple. Add firewall rules and HTTP URL reservations with a clean API.</PackageDescription>
     <PackageTags>firewall;windows;netsh;urlacl;http</PackageTags>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/halrad-com/firebug</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/halrad-com/firebug</PackageProjectUrl>
+
+    <!-- Ship the XML docs; 1591 (undocumented public member) stays a
+         non-warning — same policy as SsdpCore. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>

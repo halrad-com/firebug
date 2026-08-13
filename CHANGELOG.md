@@ -1,8 +1,10 @@
 # Firebug Changelog
 
-> **SsdpCore version labels:** entries use shipped assembly-file versions (0.5.0.x).
-> Earlier drafts of this file - and some pre-relabel commit messages - referred to
-> the two SsdpCore entries below as 1.1.0 / 1.0.0.
+> **Version labels** use shipped assembly-file versions. Earlier drafts of this
+> file - and some pre-relabel commit messages - referred to the two SsdpCore
+> entries below as 1.1.0 / 1.0.0, and to the 2026-07-30 Firebug entry as 0.2.0
+> (no 0.2.0 assembly ever existed; that work shipped as 0.5.0.1). The
+> 2026-01-19 Firebug entry really did ship as 0.1.0.
 
 ## Firebug.Cli [0.4.10.0] - 2026-08-13
 
@@ -81,7 +83,7 @@
 
 ---
 
-## Firebug [0.2.0] - 2026-07-30
+## Firebug [0.5.0.1] - 2026-07-30
 
 ### Added
 - **PortPicker** - Free-port selection to complement firewall/URL-ACL setup
