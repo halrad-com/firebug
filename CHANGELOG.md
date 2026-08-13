@@ -17,6 +17,15 @@
   - Idempotent - re-reserving replaces the app's rules instead of stacking duplicates; bad args fail fast **before** any UAC prompt
 - **Interactive console** - run `firebug` bare in a terminal for a prompt with **Tab verb completion**, ghost-text suggestions, and Up/Down history; `quit` to leave. Redirected/scripted invocations keep the old usage + exit 1 contract. The line editor is a pure, unit-tested state machine (`LineEditorLogic`) driving a dumb painter - the same console pattern as the Huddle orchestrator, staged here as a reusable worked example
 - **`firebug scan`** - network discovery from the command line, and the worked example for SsdpCore's client side
+
+### Fixed (review wave, same release)
+- **Security:** the elevated relaunch now quotes arguments per `CommandLineToArgvW` rules and `reserve` validates `--name`/`--protocol` before elevation - a crafted `--name` containing quotes could previously smuggle flags (e.g. `--pick`) into the Administrator child, defeating the concrete-port invariant. Pinned by round-trip tests through the real Windows parser
+- The interactive prompt gained an exception boundary (a throwing verb no longer kills the session), prints `(exit N)` when an elevated child fails (its own console closes before you can read it), and restores console colors if Ctrl+C lands mid-paint
+- `--protocol` values other than tcp/udp are now an error instead of silently becoming a TCP rule
+- `reserve` announces the rule replacement it performs, and rejects garbage `--preferred` values instead of printing a bogus `PORT: 0`
+- `PortPicker.IsFree` rejects port <= 0 (binding port 0 asks the OS for an ephemeral port and always succeeds - it lied for the "is THIS port free" question)
+- REPL tokenizer preserves quoted empty arguments; `scan` saves/restores the process-global `SsdpTrace` level
+- Test suite grown to 46: editor pins decoupled from the live catalog (fixed vocabulary), nine reference pins ported (history-cancels-cycle, cursor arithmetic, stash lifecycle, bounds), completer/catalog drift-guard pins, and `CommandLineToArgvW` round-trips of the hostile vectors
   - `firebug scan` - SSDP sweep (`ssdp:all`), results named from each device's description
   - `--target <st>` - specific search target (e.g. `urn:schemas-upnp-org:device:MediaRenderer:1`)
   - `--mdns <type[,type]>` - mDNS/DNS-SD sweep instead (e.g. `_airplay._tcp`)

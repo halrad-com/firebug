@@ -37,7 +37,13 @@ namespace Firebug.Cli
         /// </summary>
         static int RunInteractive()
         {
-            Console.WriteLine("Firebug interactive — Tab completes verbs, Up/Down history, 'quit' to exit.");
+            // ASCII only: net48 consoles default to the OEM code page, where an
+            // em dash renders as '?'.
+            Console.WriteLine("Firebug interactive - Tab completes verbs, Up/Down history, 'quit' to exit.");
+            // Ctrl+C terminates without unwinding the main thread, so Render's
+            // finally{ResetColor} never runs — without this a Ctrl+C landing
+            // mid-paint leaves the operator's console cyan for the session.
+            Console.CancelKeyPress += (s, e) => { Console.ResetColor(); /* e.Cancel stays false */ };
             var editor = new LineEditor(new VerbCompleter());
             while (true)
             {
@@ -46,28 +52,20 @@ namespace Firebug.Cli
                 var trimmed = line.Trim();
                 if (trimmed.Length == 0) continue;
                 if (trimmed == "quit" || trimmed == "exit") return 0;
-                Run(SplitArgs(trimmed));
-            }
-        }
-
-        /// <summary>Split a command line into args, honoring double quotes.</summary>
-        static string[] SplitArgs(string line)
-        {
-            var result = new System.Collections.Generic.List<string>();
-            var current = new System.Text.StringBuilder();
-            bool inQuotes = false;
-            foreach (var c in line)
-            {
-                if (c == '"') { inQuotes = !inQuotes; continue; }
-                if (char.IsWhiteSpace(c) && !inQuotes)
+                // Exception boundary: in one-shot mode an unhandled throw was the
+                // contract; in a REPL it would take the whole session down. And an
+                // elevated child runs in its own console that closes on exit, so
+                // its exit code is the only surviving signal — print it on failure.
+                try
                 {
-                    if (current.Length > 0) { result.Add(current.ToString()); current.Clear(); }
-                    continue;
+                    var code = Run(CliText.SplitArgs(trimmed));
+                    if (code != 0) Console.WriteLine($"(exit {code})");
                 }
-                current.Append(c);
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error: {ex.Message}");
+                }
             }
-            if (current.Length > 0) result.Add(current.ToString());
-            return result.ToArray();
         }
 
         static int Run(string[] args)
@@ -140,11 +138,13 @@ namespace Firebug.Cli
         {
             var exePath = Process.GetCurrentProcess().MainModule.FileName;
 
-            // Quote args that contain spaces
+            // CommandLineToArgvW-correct quoting (CliText.QuoteArg): these values
+            // cross a privilege boundary — the elevated child must parse exactly
+            // the values this process held, never extra flags smuggled inside one.
             var quotedArgs = new string[args.Length];
             for (int i = 0; i < args.Length; i++)
             {
-                quotedArgs[i] = args[i].Contains(" ") ? $"\"{args[i]}\"" : args[i];
+                quotedArgs[i] = CliText.QuoteArg(args[i]);
             }
 
             var startInfo = new ProcessStartInfo
@@ -180,6 +180,8 @@ namespace Firebug.Cli
             Console.WriteLine("  firebug check --name <AppName> [--port <Port>]");
             Console.WriteLine("  firebug status");
             Console.WriteLine("  firebug open");
+            Console.WriteLine("  firebug help");
+            Console.WriteLine("  firebug            (no args in a terminal: interactive prompt; 'quit' exits it)");
             Console.WriteLine("  firebug scan [--target <st>] [--duration <ms>] [--raw] [--verbose]");
             Console.WriteLine("  firebug scan --mdns <type[,type]> [--duration <ms>] [--verbose]");
             Console.WriteLine("  firebug pick [--preferred <port>] [--saved <port>] [--pair] [--verbose]");
@@ -436,8 +438,17 @@ namespace Firebug.Cli
 
             // The SsdpTrace switch in action: quiet by default (warnings and
             // hard errors still print — errors always bypass the switch),
-            // everything with --verbose.
+            // everything with --verbose. Saved and restored because the switch
+            // is process-global and the REPL runs many verbs in one process —
+            // scan's preference must not leak into whatever runs next.
+            var prevLevel = SsdpTrace.Switch.Level;
             SsdpTrace.Switch.Level = verbose ? TraceLevel.Verbose : TraceLevel.Warning;
+            try { return ScanCore(target, mdnsTypes, durationMs, raw); }
+            finally { SsdpTrace.Switch.Level = prevLevel; }
+        }
+
+        static int ScanCore(string target, string mdnsTypes, int durationMs, bool raw)
+        {
             Action<TraceLevel, string> log = (level, msg) => Console.WriteLine($"  [{level}] {msg}");
 
             if (mdnsTypes != null)
@@ -597,6 +608,22 @@ namespace Firebug.Cli
                 Console.WriteLine("Error: --name is required");
                 return 1;
             }
+            // These two values get flattened back into an ELEVATED child's
+            // command line (below). QuoteArg makes the flattening correct, and
+            // this validation makes hostile values a loud error rather than a
+            // correctly-quoted-but-absurd firewall rule name.
+            if (name.IndexOf('"') >= 0 || name.IndexOfAny(new[] { '\r', '\n', '\0' }) >= 0)
+            {
+                Console.WriteLine("Error: --name must not contain quotes or control characters");
+                return 1;
+            }
+            if (protocol != "tcp" && protocol != "udp")
+            {
+                Console.WriteLine($"Error: --protocol must be tcp or udp (got '{protocol}')");
+                return 1;
+            }
+            if (preferred <= 0) preferred = 8000;   // same guard as HandlePick — a garbage
+                                                    // --preferred must not probe port 0
             if (pick)
             {
                 if (!DoPick(preferred, saved, pair, verbose, out port))
@@ -604,7 +631,8 @@ namespace Firebug.Cli
             }
             if (port <= 0)
             {
-                Console.WriteLine("Error: --port is required (or use --pick)");
+                Console.WriteLine(pick ? "Error: pick did not produce a usable port"
+                                       : "Error: --port is required (or use --pick)");
                 return 1;
             }
 
@@ -615,7 +643,10 @@ namespace Firebug.Cli
             {
                 // Re-launch with the CONCRETE port — the elevated child must
                 // never re-pick and land somewhere different from what the
-                // caller just read off the PORT: line.
+                // caller just read off the PORT: line. (Known, accepted TOCTOU:
+                // the picked port is unbound while the UAC prompt sits, so
+                // something else can grab it; the reservation still lands, and
+                // the app's own bind will fail loudly if so.)
                 var concrete = new System.Collections.Generic.List<string>
                     { "reserve", "--name", name, "--port", port.ToString(), "--protocol", protocol };
                 if (pair) concrete.Add("--pair");
@@ -627,8 +658,10 @@ namespace Firebug.Cli
             Console.WriteLine($"Reserving {protocol.ToUpper()} port(s) {ports} for '{name}'...");
 
             // Idempotent: replace this app's rules rather than stacking duplicates
-            // (same convention as the multi-port add path).
-            fb.RemoveRule(name, _ => { });
+            // (same convention as the multi-port add path) — and say so, since a
+            // failed add after a silent removal would read as rules vanishing.
+            Console.WriteLine($"Replacing any existing '{name}' rules...");
+            fb.RemoveRule(name, Console.WriteLine);
 
             bool ok = protocol == "udp"
                 ? (pair ? fb.AddUdpRule(name, ports, Console.WriteLine) : fb.AddUdpInboundRule(name, port, Console.WriteLine))

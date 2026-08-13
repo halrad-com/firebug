@@ -20,8 +20,11 @@ namespace Firebug.Cli
     }
 
     /// <summary>
-    /// The CLI's verb catalog — single source of truth for completion. Keep in
-    /// sync with the switch in Program.Run and the ShowUsage text.
+    /// The CLI's verb catalog — single source of truth for completion. Covers
+    /// every Program.Run switch case plus 'quit' (a REPL-level intercept, not a
+    /// Run case). 'exit' is an accepted-but-uncompleted alias of quit, same
+    /// convention as the huddle reference's alias exclusions. Guarded against
+    /// drift by VerbCompleterTests' catalog pin.
     /// </summary>
     public static class FirebugVerbs
     {

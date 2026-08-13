@@ -29,5 +29,6 @@
          by link rather than referenced — both files are BCL-only. -->
     <Compile Include="..\..\src\Firebug.Cli\Completion.cs" Link="Cli\Completion.cs" />
     <Compile Include="..\..\src\Firebug.Cli\LineEditor.cs" Link="Cli\LineEditor.cs" />
+    <Compile Include="..\..\src\Firebug.Cli\CliText.cs" Link="Cli\CliText.cs" />
   </ItemGroup>
 </Project>

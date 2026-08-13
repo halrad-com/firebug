@@ -25,6 +25,11 @@ namespace Firebug
         /// </summary>
         public static bool IsFree(int port)
         {
+            // Port 0 asks the OS for an ephemeral port and ALWAYS binds — as an
+            // answer to "is THIS port free" it would be a lie. Out-of-range
+            // values are equally not-a-port.
+            if (port <= 0 || port > 65535) return false;
+
             TcpListener l = null;
             try
             {

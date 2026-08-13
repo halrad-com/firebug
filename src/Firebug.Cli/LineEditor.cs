@@ -3,7 +3,9 @@ using System;
 using System.Collections.Generic;
 
 #if !NET5_0_OR_GREATER
-// init-accessor support for record structs on .NET Framework.
+// init-accessor support for record structs on .NET Framework. Keep this the
+// ONLY IsExternalInit in the repo: firebug.exe ILRepack-merges Firebug.dll and
+// SsdpCore.dll, and a second polyfill in either library would collide at merge.
 namespace System.Runtime.CompilerServices { internal static class IsExternalInit { } }
 #endif
 
@@ -203,6 +205,10 @@ namespace Firebug.Cli
                     return s.Buffer;
                 }
 
+                // Nothing produces Cancel today (Ctrl+C terminates the process
+                // outright — this CLI installs no flag-flipping handler), but
+                // honouring it keeps the contract honest if Step ever grows an
+                // Esc/Ctrl+D branch; the nullable return exists for the same reason.
                 if (action == EditAction.Cancel) { Console.WriteLine(); return null; }
 
                 s = next;
