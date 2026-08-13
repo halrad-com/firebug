@@ -120,6 +120,7 @@ Apache-2.0 asks only that you keep the license/attribution notice.
 
 ```cmd
 firebug add --name "My App" --port 8000 --urlacl
+firebug scan --target urn:schemas-upnp-org:device:MediaRenderer:1
 ```
 
 ## Building
@@ -174,6 +175,10 @@ server.Start();
 ```
 
 See `src/SsdpCore/README.md` for full API documentation.
+
+The CLI doubles as a worked example and a bench tool: `firebug scan` runs the
+SSDP sweep (named results), `firebug scan --mdns _airplay._tcp` the DNS-SD one —
+exit code 0 when something answered, quiet by default, `--verbose` for the wire log.
 
 See: [DynaPort — a well-behaved listener port](https://mbxhub.com/downloads/examples/dynaport/)
 

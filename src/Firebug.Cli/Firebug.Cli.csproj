@@ -7,9 +7,9 @@
     <RootNamespace>Firebug.Cli</RootNamespace>
     <LangVersion>latest</LangVersion>
 
-    <Version>0.4.9.0</Version>
-    <FileVersion>0.4.9.0</FileVersion>
-    <AssemblyVersion>0.4.9.0</AssemblyVersion>
+    <Version>0.4.10.0</Version>
+    <FileVersion>0.4.10.0</FileVersion>
+    <AssemblyVersion>0.4.10.0</AssemblyVersion>
     <Copyright>Copyright (c) 2026 Halrad LLC</Copyright>
     <Company>Halrad LLC</Company>
     <Product>Firewall Configuration Utility</Product>
@@ -21,8 +21,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- PrivateAssets="all" ensures Firebug.dll gets merged, not copied -->
+    <!-- PrivateAssets="all" ensures the libraries get merged, not copied -->
     <ProjectReference Include="..\Firebug\Firebug.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\SsdpCore\SsdpCore.csproj" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,6 +39,7 @@
     </PropertyGroup>
     <ItemGroup>
       <ILRepackAssemblies Include="$(OutputPath)Firebug.dll" />
+      <ILRepackAssemblies Include="$(OutputPath)SsdpCore.dll" />
     </ItemGroup>
     <ILRepack
       InputAssemblies="@(ILRepackAssemblies)"
@@ -45,8 +47,8 @@
       OutputFile="$(ILRepackOutput)"
       Internalize="true"
       Parallel="true" />
-    <!-- Clean up merged DLL -->
-    <Delete Files="$(OutputPath)Firebug.dll" />
+    <!-- Clean up merged DLLs -->
+    <Delete Files="$(OutputPath)Firebug.dll;$(OutputPath)SsdpCore.dll" />
   </Target>
 
 </Project>

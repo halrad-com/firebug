@@ -4,6 +4,19 @@
 > Earlier drafts of this file - and some pre-relabel commit messages - referred to
 > the two SsdpCore entries below as 1.1.0 / 1.0.0.
 
+## Firebug.Cli [0.4.10.0] - 2026-08-13
+
+### Added
+- **`firebug scan`** - network discovery from the command line, and the worked example for SsdpCore's client side
+  - `firebug scan` - SSDP sweep (`ssdp:all`), results named from each device's description
+  - `--target <st>` - specific search target (e.g. `urn:schemas-upnp-org:device:MediaRenderer:1`)
+  - `--mdns <type[,type]>` - mDNS/DNS-SD sweep instead (e.g. `_airplay._tcp`)
+  - `--duration <ms>`, `--raw` (skip description fetch), `--verbose` (full wire log via the `SsdpTrace` switch; quiet by default, hard errors always print)
+  - Exit code 0 when something answered, 1 when nothing did - scriptable
+- SsdpCore is now merged into `firebug.exe` (same ILRepack single-file pattern as Firebug.dll)
+
+---
+
 ## SsdpCore [0.5.0.2] - 2026-08-12
 
 ### Added
