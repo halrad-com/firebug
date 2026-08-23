@@ -371,14 +371,22 @@ namespace SsdpCore
                     string matchedType = null;
                     foreach (var qt in queryTypes)
                     {
-                        if (ptrName.IndexOf(qt.TrimEnd('.'), StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            qt.IndexOf(ptrName.TrimEnd('.'), StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            NamesMatch(ptrName, qt))
+                        if (PtrMatchesType(ptrName, qt))
                         {
                             matchedType = qt;
                             break;
                         }
                     }
+
+                    // A PTR for something nobody asked for is not a find. The socket
+                    // is bound to 5353 and joined on every interface, so for the whole
+                    // scan window it hears EVERY mDNS announcement on the machine —
+                    // printers, Cast targets, whatever else is on the wire. Those used
+                    // to be returned as results, typed by their own PTR name; worse,
+                    // results are keyed by IP and first-in wins, so an unrequested row
+                    // could take the slot belonging to the service a device announced
+                    // a moment later.
+                    if (matchedType == null) continue;
 
                     // Resolve IP: SRV → A record chain, fall back to sender IP
                     string ip = senderIp.ToString();
@@ -407,14 +415,21 @@ namespace SsdpCore
                         IPAddress = ip,
                         Port = port,
                         HostName = hostName,
-                        ServiceType = matchedType ?? ptrName,
+                        ServiceType = matchedType,
                         Properties = properties
                     });
                 }
 
                 // If no PTR records but we got an A record from a known mDNS sender,
-                // still record the host (some devices respond with just A records)
-                if (services.Count == 0 && aRecords.Count > 0)
+                // still record the host (some devices respond with just A records).
+                //
+                // The guard is ptrRecords, NOT services: now that an unmatched PTR is
+                // skipped above, a packet can carry a dozen PTRs for services nobody
+                // asked about and still leave services empty. Keying this on services
+                // would let exactly the traffic we just rejected back in through its
+                // A records. "No PTRs at all" is the case this fallback was written
+                // for, and it is the only one it should answer.
+                if (ptrRecords.Count == 0 && aRecords.Count > 0)
                 {
                     foreach (var kvp in aRecords)
                     {
@@ -437,12 +452,27 @@ namespace SsdpCore
             return services;
         }
 
-        private static bool NamesMatch(string a, string b)
+        /// <summary>
+        /// Does a PTR record's owner name name the service type we asked for?
+        ///
+        /// Anchored, not a substring search: both sides are normalised to a bare
+        /// type ("_http._tcp.local." → "_http._tcp") and compared whole. The one
+        /// concession is the DNS-SD subtype form, where the owner reads
+        /// "_printer._sub._http._tcp" and genuinely belongs to "_http._tcp" — so a
+        /// suffix counts, but only on a label boundary. The previous test searched
+        /// for either string inside the other, which let "_tcp.local" satisfy a
+        /// query for "_devialet._tcp.local".
+        /// </summary>
+        private static bool PtrMatchesType(string ptrName, string queryType)
         {
-            return string.Equals(
-                a.TrimEnd('.').Replace(".local", ""),
-                b.TrimEnd('.').Replace(".local", ""),
-                StringComparison.OrdinalIgnoreCase);
+            var ptr = NormalizeServiceType(ptrName);
+            var qt = NormalizeServiceType(queryType);
+            if (string.IsNullOrEmpty(ptr) || string.IsNullOrEmpty(qt)) return false;
+
+            if (string.Equals(ptr, qt, StringComparison.OrdinalIgnoreCase)) return true;
+
+            return ptr.Length > qt.Length + 1
+                && ptr.EndsWith("." + qt, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

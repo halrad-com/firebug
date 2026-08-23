@@ -122,3 +122,114 @@ public class PortPickerTests
         Assert.True(PortPicker.IsFree(low + 1));
     }
 }
+
+// Rule health (review 2026-08-22, R3/R4). HasRule was output.Contains(name) —
+// presence only — so a disabled rule, a Block rule, an outbound rule, or a rule
+// left behind on an old port all reported PRESENT, and callers whose repair
+// contract is "add only if absent" then never fixed them. These pin the decision
+// logic; the COM enumeration that feeds it is exercised by firebug.exe by hand.
+
+public class RuleHealthTests
+{
+    private static FirebugManager.FirewallRuleView Rule(
+        string name = "MBXHub", bool enabled = true, bool inbound = true,
+        bool allow = true, int protocol = 6, string ports = "8080")
+        => new FirebugManager.FirewallRuleView(name, enabled, inbound, allow, protocol, ports);
+
+    [Fact]
+    public void HealthyRule_Allows()
+    {
+        Assert.True(FirebugManager.RulesAllow(new[] { Rule() }, "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void DisabledRule_DoesNotAllow()
+    {
+        // R3: this is the case that reported "present" and was then left untouched.
+        Assert.False(FirebugManager.RulesAllow(new[] { Rule(enabled: false) }, "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void OutboundRule_DoesNotAllowInbound()
+    {
+        Assert.False(FirebugManager.RulesAllow(new[] { Rule(inbound: false) }, "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void BlockRule_Wins_EvenAlongsideAnAllow()
+    {
+        // Windows resolves block over allow regardless of order, so the presence of a
+        // healthy allow rule must NOT rescue the verdict.
+        var rules = new[] { Rule(allow: true), Rule(allow: false) };
+        Assert.False(FirebugManager.RulesAllow(rules, "MBXHub", 6, "8080"));
+        Assert.False(FirebugManager.RulesAllow(rules.Reverse().ToArray(), "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void StaleRuleOnTheOldPort_DoesNotAllowTheNewOne()
+    {
+        // R4: the rule survives a port change, so name-only matching says healthy
+        // while the port that matters is shut.
+        Assert.False(FirebugManager.RulesAllow(new[] { Rule(ports: "8080") }, "MBXHub", 6, "9090"));
+    }
+
+    [Fact]
+    public void OneEnabledSibling_IsEnough()
+    {
+        // Several rules may share a name (one per profile is routine). A disabled
+        // sibling must not veto a healthy one — only a BLOCK does that.
+        var rules = new[] { Rule(enabled: false), Rule(enabled: true) };
+        Assert.True(FirebugManager.RulesAllow(rules, "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void WrongProtocol_DoesNotAllow()
+    {
+        Assert.False(FirebugManager.RulesAllow(new[] { Rule(protocol: 17) }, "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void AnyProtocolRule_SatisfiesASpecificAsk()
+    {
+        Assert.True(FirebugManager.RulesAllow(new[] { Rule(protocol: 256) }, "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void NameIsMatchedCaseInsensitively_ButOnlyExactly()
+    {
+        Assert.True(FirebugManager.RulesAllow(new[] { Rule(name: "mbxhub") }, "MBXHub", 6, "8080"));
+        // "MBXHub-Shell" is a DIFFERENT rule covering a different port set — a
+        // substring match here would recreate the false-green in MBXHub's repair.
+        Assert.False(FirebugManager.RulesAllow(new[] { Rule(name: "MBXHub-Shell") }, "MBXHub", 6, "8080"));
+    }
+
+    [Fact]
+    public void EveryWantedPortMustBeCovered()
+    {
+        Assert.True(FirebugManager.PortsCovered("8080,8081", "8080,8081"));
+        Assert.False(FirebugManager.PortsCovered("8080", "8080,8081"));
+    }
+
+    [Fact]
+    public void RangesAndWildcardAreUnderstood()
+    {
+        Assert.True(FirebugManager.PortsCovered("5000-5010", "5005"));
+        Assert.False(FirebugManager.PortsCovered("5000-5010", "5011"));
+        Assert.True(FirebugManager.PortsCovered("*", "8080"));
+    }
+
+    [Fact]
+    public void UnreadablePortToken_CoversNothing()
+    {
+        // netsh keywords like "RPC"/"Teredo". Cannot be shown to include the port,
+        // and claiming healthy on a rule we cannot read is the whole defect.
+        Assert.False(FirebugManager.PortsCovered("RPC", "8080"));
+    }
+
+    [Fact]
+    public void NoWantedPorts_AsksOnlyAboutExistence()
+    {
+        Assert.True(FirebugManager.PortsCovered("8080", null));
+        Assert.True(FirebugManager.RulesAllow(new[] { Rule(ports: "9999") }, "MBXHub", 6, null));
+    }
+}

@@ -6,6 +6,13 @@
 > (no 0.2.0 assembly ever existed; that work shipped as 0.5.0.1). The
 > 2026-01-19 Firebug entry really did ship as 0.1.0.
 
+## SsdpCore [Unreleased]
+
+### Fixed
+- **`MdnsScanner` returns only the service types you asked for.** A PTR record was matched against the requested types, and then added to the results whether or not it matched (the computed `matchedType` was used to *label* the row, never to gate it). Because the scanner binds `0.0.0.0:5353` and joins the group on every interface, it hears every mDNS announcement on the machine for the whole scan window - printers, Cast targets, anything - and each of those PTRs became a "found service". Results are keyed by IP and first-in wins, so an unrequested row could also take the slot for a service the same device announced moments later
+- **Type matching is anchored instead of a substring search.** The old test asked whether either name appeared *inside* the other, so `_tcp.local` satisfied a query for `_devialet._tcp.local`. Both sides are now normalised and compared whole, with a label-boundary suffix allowance so DNS-SD subtypes (`_printer._sub._http._tcp`) still match their base type
+- **The A-record fallback no longer re-admits what the gate rejected.** It fired when the *results* list came out empty, which after the gate includes packets carrying many unmatched PTRs; it is now guarded on there being no PTR records at all, which is the case it was written for
+
 ## Firebug.Cli [0.4.10.0] - 2026-08-13
 
 ### Added
