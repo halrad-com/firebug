@@ -122,6 +122,81 @@ namespace Firebug
             }
         }
 
+        /// <summary>
+        /// The ports a rule ALREADY admits, so a caller can add to them instead of
+        /// replacing them. Empty string when the rule does not exist, admits nothing, or
+        /// cannot be read.
+        ///
+        /// <para>Exists because "repair this rule" was implemented as remove-then-add with
+        /// only the caller's own ports, which silently evicts everybody else's. Lived case
+        /// (2026-08-24): two MBXHub installs on one machine sharing the rule name "MBXHub"
+        /// — repairing one removed the other's ports, so each install's startup check then
+        /// reported the rule missing and repaired it back. A loop that cannot terminate
+        /// and quietly breaks LAN access on alternate runs.</para>
+        ///
+        /// <para>Returns the union across every matching enabled inbound allow rule of the
+        /// requested protocol: Windows permits several rules of one name, and a caller
+        /// asking "what is already open" wants all of it, not the first match.</para>
+        /// </summary>
+        /// <param name="ruleName">Rule name, matched case-insensitively.</param>
+        /// <param name="protocol">"TCP" or "UDP".</param>
+        public string GetRulePorts(string ruleName, string protocol)
+        {
+            var rules = TryEnumerateRules();
+            if (rules == null) return string.Empty;   // COM unavailable — say nothing, never guess
+
+            int wanted = ProtocolNumber(protocol);
+            var ports = new List<string>();
+            foreach (var r in rules)
+            {
+                if (!string.Equals(r.Name, ruleName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!r.Enabled || !r.Inbound || !r.Allow) continue;
+                if (wanted != 0 && r.Protocol != wanted) continue;
+                if (string.IsNullOrWhiteSpace(r.LocalPorts)) continue;
+
+                foreach (var p in r.LocalPorts.Split(','))
+                {
+                    var t = p.Trim();
+                    // Tokens are preserved VERBATIM, ranges ("5000-5010") included.
+                    // Dropping a range would narrow a rule that was wider than the caller
+                    // thinks, and netsh accepts ranges in a localport list, so passing one
+                    // straight back through a merge is both safe and correct.
+                    //
+                    // "*" cannot reach a merge in practice: PortsCovered() reports a
+                    // wide-open rule as already covering everything, so the caller's
+                    // health check passes and it never repairs. It is preserved here for
+                    // the same reason as a range — this method reports what IS, and
+                    // narrowing is the caller's mistake to avoid, not ours to hide.
+                    if (t.Length == 0) continue;
+                    if (!ports.Exists(x => string.Equals(x, t, StringComparison.OrdinalIgnoreCase)))
+                        ports.Add(t);
+                }
+            }
+            return string.Join(",", ports);
+        }
+
+        /// <summary>
+        /// Union of two comma-separated port lists, order-stable, duplicates removed.
+        /// Pure, so the merge that decides what a repair writes is testable without a
+        /// firewall.
+        /// </summary>
+        public static string MergePorts(string existingPorts, string wantedPorts)
+        {
+            var result = new List<string>();
+            foreach (var source in new[] { existingPorts, wantedPorts })
+            {
+                if (string.IsNullOrWhiteSpace(source)) continue;
+                foreach (var p in source.Split(','))
+                {
+                    var t = p.Trim();
+                    if (t.Length == 0) continue;
+                    if (!result.Exists(x => string.Equals(x, t, StringComparison.OrdinalIgnoreCase)))
+                        result.Add(t);
+                }
+            }
+            return string.Join(",", result);
+        }
+
         /// <summary>One firewall rule reduced to the fields that decide whether traffic
         /// actually gets in. Exists so the decision is a pure function that can be tested
         /// without the COM enumeration behind it.</summary>
