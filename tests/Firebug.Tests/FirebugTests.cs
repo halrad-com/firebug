@@ -72,6 +72,28 @@ public class PortPickerTests
         finally { l.Stop(); }
     }
 
+    // A port can be busy on ONE address family only. Binding IPv6Any leaves the
+    // IPv4 loopback/wildcard free (Windows sockets are v6-only by default), which
+    // is exactly the state a v4-only probe answers "free" about — and then the
+    // caller's wildcard bind fails, because http.sys/`+` takes both families.
+    private static TcpListener OccupyIPv6Only(out int port)
+    {
+        var l = new TcpListener(IPAddress.IPv6Any, 0);
+        l.Server.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, true);
+        l.Start();
+        port = ((IPEndPoint)l.LocalEndpoint).Port;
+        return l;
+    }
+
+    [Fact]
+    public void IsFree_False_WhenOnlyIPv6Bound()
+    {
+        if (!Socket.OSSupportsIPv6) return;   // v6-disabled box: nothing to assert
+        var l = OccupyIPv6Only(out int port);
+        try { Assert.False(PortPicker.IsFree(port)); }
+        finally { l.Stop(); }
+    }
+
     [Fact]
     public void IsFree_True_AfterReleased()
     {

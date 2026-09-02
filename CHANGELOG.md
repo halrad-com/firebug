@@ -6,6 +6,40 @@
 > (no 0.2.0 assembly ever existed; that work shipped as 0.5.0.1). The
 > 2026-01-19 Firebug entry really did ship as 0.1.0.
 
+## Firebug [Unreleased]
+
+### Added
+- **`PortOwner` - names the process behind an http.sys port.** The TCP table cannot:
+  every `HttpListener` binds through the kernel-mode HTTP driver, so
+  `GetExtendedTcpTable` / `netstat` report the owner as `System (PID 4)` - true, and
+  useless, because "System" is not a program a user can be told to close. http.sys
+  itself knows the answer, and `netsh http show servicestate view=requestq` reports it:
+  request queues, their attached processes, and each registered URL prefix. `Parse` is
+  pure over that text (testable against captured dumps, no elevation, no live listener),
+  `ForPort` filters it, and the live overload shells netsh with the drain-before-wait
+  discipline the ACL reads already use. Anchored on `HTTP://` and `ID:` because netsh's
+  LABELS are localized on non-English Windows while its payloads are not
+  - Three prefix forms, two of them traps: `+:8080` (one colon), `127.0.0.1:8081:127.0.0.1`
+    (explicit IP, printed host:port:ip - "after the last colon" reads the port as 127),
+    and `[::1]:28391` (an IPv6 literal is mostly colons; the bracket delimits the host)
+  - A queue header appears twice - once at column 0 opening the queue, and again indented
+    inside each URL group naming its owner - so only the column-0 one starts a new queue.
+    A synthetic fixture without the nested line stayed green while the live run parsed
+    every row to PID 0; the fixture now mirrors real output
+  - LIVE state, not configuration: a process that is not running has registered nothing,
+    so no rows means "not listening", never "not configured"
+
+### Fixed
+- **`PortPicker.IsFree` tested only IPv4, so it called occupied ports free.** It bound
+  `IPAddress.Any` - which is `0.0.0.0`, one address family - while the bind it exists to
+  predict takes both: a caller reserving `http://+:{port}/`, or binding the IPv6 wildcard,
+  is stopped by an occupant on *either* stack. A port held on `[::]` and free on `0.0.0.0`
+  therefore reported free, and the caller's real bind then failed - the failure landing at
+  bind time, far from the check that approved it. Windows sockets are v6-only by default,
+  so a one-family occupant is an ordinary state rather than an exotic one. `IsFree` now
+  tests both families, and treats *address family unavailable* as "not an occupancy" so a
+  machine with IPv6 disabled does not report every port taken
+
 ## SsdpCore [Unreleased]
 
 ### Fixed

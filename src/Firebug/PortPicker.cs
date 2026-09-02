@@ -30,14 +30,40 @@ namespace Firebug
             // values are equally not-a-port.
             if (port <= 0 || port > 65535) return false;
 
+            // BOTH families, because the bind this predicts takes both. A caller
+            // that reserves `http://+:{port}/` (or binds the IPv6 wildcard) is
+            // stopped by an occupant on EITHER stack, so testing only IPv4 —
+            // IPAddress.Any is 0.0.0.0 — answers "free" about a port whose real
+            // bind then fails. Windows sockets are v6-only by default, so a
+            // one-family occupant is an ordinary state, not an exotic one.
+            if (TryBind(IPAddress.Any, port) == false) return false;
+            if (TryBind(IPAddress.IPv6Any, port) == false) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Can a listener bind this address and port right now?
+        /// <c>null</c> means the address FAMILY is not available on this machine at
+        /// all — which is not an occupancy and must never read as "busy", or a box
+        /// with IPv6 disabled would report every port taken.
+        /// </summary>
+        private static bool? TryBind(IPAddress address, int port)
+        {
             TcpListener l = null;
             try
             {
-                l = new TcpListener(IPAddress.Any, port);
+                l = new TcpListener(address, port);
                 l.Start();
                 return true;
             }
+            catch (SocketException ex) when (
+                ex.SocketErrorCode == SocketError.AddressFamilyNotSupported ||
+                ex.SocketErrorCode == SocketError.OperationNotSupported)
+            {
+                return null;
+            }
             catch (SocketException) { return false; }
+            catch (NotSupportedException) { return null; }
             catch { return false; }
             finally { try { l?.Stop(); } catch { } }
         }
