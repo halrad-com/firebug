@@ -215,7 +215,7 @@ namespace SsdpCore
         /// Build a DNS PTR query for a service type (e.g. "_devialet._tcp.local").
         /// Standard DNS wire format: header (12 bytes) + question section.
         /// </summary>
-        private static byte[] BuildPtrQuery(string serviceType)
+        internal static byte[] BuildPtrQuery(string serviceType)
         {
             // Ensure it ends with .local
             if (!serviceType.EndsWith(".local", StringComparison.OrdinalIgnoreCase) &&
@@ -234,7 +234,7 @@ namespace SsdpCore
             Buffer.BlockCopy(name, 0, packet, 12, name.Length);
             int offset = 12 + name.Length;
             packet[offset] = 0; packet[offset + 1] = 12; // QTYPE = PTR
-            packet[offset + 2] = 0x80; packet[offset + 3] = 1; // QCLASS = IN with unicast-response bit
+            packet[offset + 2] = 0; packet[offset + 3] = 1; // QCLASS = IN, multicast reply. NOT the unicast-response bit: Cast receivers honor it and answer unicast to port 5353, which Windows delivers to the DNS Client service (bound first), never to this socket (measured 2026-09-24: 0 of 4 receivers with the bit, 4 of 4 without).
 
             return packet;
         }
@@ -463,7 +463,7 @@ namespace SsdpCore
         /// for either string inside the other, which let "_tcp.local" satisfy a
         /// query for "_devialet._tcp.local".
         /// </summary>
-        private static bool PtrMatchesType(string ptrName, string queryType)
+        internal static bool PtrMatchesType(string ptrName, string queryType)
         {
             var ptr = NormalizeServiceType(ptrName);
             var qt = NormalizeServiceType(queryType);

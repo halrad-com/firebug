@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Firebug\Firebug.csproj" />
+    <!-- net48 library referenced from net8.0, the same way MBXHub.Shell consumes it. -->
+    <ProjectReference Include="..\..\src\SsdpCore\SsdpCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>
