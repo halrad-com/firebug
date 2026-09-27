@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.NetworkInformation;
 using SsdpCore;
 
 namespace Firebug.Tests;
@@ -74,5 +76,33 @@ public class MdnsScannerTests
     public void PtrMatchesType_IsAnchoredOnTheWholeType(string ptr, string query, bool expected)
     {
         Assert.Equal(expected, MdnsScanner.PtrMatchesType(ptr, query));
+    }
+
+    // Which adapters the query leaves on. A bare send lets Windows pick one by lowest
+    // multicast route metric; measured 2026-09-26 on a box whose lowest-metric adapter was
+    // a dead self-assigned 169.254.x link, every Cast scan found 0 receivers. The scanner
+    // now sends on each live IPv4 adapter explicitly (IP_MULTICAST_IF).
+
+    [Fact]
+    public void TheQueryGoesOutEveryLiveAdapter_AndNeverASelfAssignedOne()
+    {
+        var adapters = new[]
+        {
+            ("Ethernet", OperationalStatus.Up, NetworkInterfaceType.Ethernet, (IEnumerable<IPAddress>)new[] { IPAddress.Parse("169.254.184.187") }),
+            ("Ethernet 2", OperationalStatus.Up, NetworkInterfaceType.Ethernet, new[] { IPAddress.Parse("192.168.1.20") }),
+            ("vEthernet (WSL)", OperationalStatus.Up, NetworkInterfaceType.Ethernet, new[] { IPAddress.Parse("172.27.176.1") }),
+            ("Wi-Fi", OperationalStatus.Down, NetworkInterfaceType.Wireless80211, new[] { IPAddress.Parse("10.0.0.5") }),
+            ("Loopback", OperationalStatus.Up, NetworkInterfaceType.Loopback, new[] { IPAddress.Loopback }),
+            ("v6 only", OperationalStatus.Up, NetworkInterfaceType.Ethernet, new[] { IPAddress.Parse("fe80::1") }),
+        };
+        var sent = MdnsScanner.SendAddresses(adapters).Select(s => s.Address.ToString()).ToArray();
+        Assert.Equal(new[] { "192.168.1.20", "172.27.176.1" }, sent);
+    }
+
+    [Fact]
+    public void NoLiveAdapter_MeansNoAddresses_SoTheScanFallsBackToTheDefaultSend()
+    {
+        var adapters = new[] { ("Ethernet", OperationalStatus.Up, NetworkInterfaceType.Ethernet, (IEnumerable<IPAddress>)new[] { IPAddress.Parse("169.254.1.1") }) };
+        Assert.Empty(MdnsScanner.SendAddresses(adapters));
     }
 }

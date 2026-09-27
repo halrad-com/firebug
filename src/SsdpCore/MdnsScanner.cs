@@ -92,6 +92,7 @@ namespace SsdpCore
             _log(TraceLevel.Info, $"Starting mDNS scan for [{typesDisplay}] ({scanDurationMs}ms)");
 
             var results = new Dictionary<string, MdnsService>(StringComparer.OrdinalIgnoreCase);
+            var liveAdapters = new List<(string Name, OperationalStatus Status, NetworkInterfaceType Type, IEnumerable<IPAddress> Addresses)>();
             UdpClient udp = null;
 
             try
@@ -109,6 +110,8 @@ namespace SsdpCore
                         if (iface.OperationalStatus != OperationalStatus.Up) continue;
                         if (iface.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
                         var props = iface.GetIPProperties();
+                        liveAdapters.Add((iface.Name, iface.OperationalStatus, iface.NetworkInterfaceType,
+                            props.UnicastAddresses.Select(a => a.Address).ToList()));
                         foreach (var addr in props.UnicastAddresses)
                         {
                             if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
@@ -128,17 +131,57 @@ namespace SsdpCore
                     _log(TraceLevel.Verbose, $"Interface enumeration: {ex.Message}");
                 }
 
-                // Send PTR queries for each service type (send twice for reliability)
+                // Send PTR queries for each service type (send twice for reliability).
+                //
+                // The query goes out on EVERY live adapter, each send pinned to its
+                // adapter with IP_MULTICAST_IF. A bare send lets Windows pick the
+                // adapter with the lowest multicast route metric, and that can be a
+                // dead link: measured 2026-09-26 on a box whose lowest-metric adapter
+                // was self-assigned (169.254.x), every Cast scan found 0 receivers
+                // while they answered directly. Listening above is unchanged.
                 var endpoint = new IPEndPoint(MdnsMulticast, MdnsPort);
+                var targets = SendAddresses(liveAdapters);
+                var sentOn = new List<string>();
                 for (int attempt = 0; attempt < 2; attempt++)
                 {
                     foreach (var type in types)
                     {
                         var query = BuildPtrQuery(type);
+                        bool pinnedSent = false;
+                        foreach (var t in targets)
+                        {
+                            // One adapter failing must not stop the others.
+                            try
+                            {
+                                // IP_MULTICAST_IF: this send leaves on THIS adapter, whatever Windows' route metrics prefer.
+                                udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, t.Address.GetAddressBytes());
+                                udp.Send(query, query.Length, endpoint);
+                                _log(TraceLevel.Verbose, $"Sent PTR query for {type} on {t.Address} ({t.Adapter}) (attempt {attempt + 1})");
+                                var label = $"{t.Address} ({t.Adapter})";
+                                if (!sentOn.Contains(label)) sentOn.Add(label);
+                                pinnedSent = true;
+                            }
+                            catch (Exception ex)
+                            {
+                                _log(TraceLevel.Warning, $"Could not send the query for {type} on {t.Address} ({t.Adapter}): {ex.Message}");
+                            }
+                        }
+                        if (pinnedSent) continue;
+
+                        // No live adapter found, or every pinned send failed (IP_MULTICAST_IF refused on each, say):
+                        // the single default send the scan made before sends were pinned, so the query still goes out.
+                        if (targets.Count > 0)
+                        {
+                            _log(TraceLevel.Verbose, $"No adapter took the query for {type}; sending it on the default interface");
+                            // A pin that was set before its send failed would still steer this send: back to the default.
+                            try { udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.Any.GetAddressBytes()); }
+                            catch { /* the default send below still goes; its own failure is logged */ }
+                        }
                         try
                         {
                             udp.Send(query, query.Length, endpoint);
                             _log(TraceLevel.Verbose, $"Sent PTR query for {type} (attempt {attempt + 1})");
+                            if (!sentOn.Contains("the default interface")) sentOn.Add("the default interface");
                         }
                         catch (Exception ex)
                         {
@@ -148,6 +191,11 @@ namespace SsdpCore
                     if (attempt == 0)
                         await Task.Delay(250, ct);
                 }
+
+                // One line per scan, so the next "0 found" says where the query went.
+                _log(TraceLevel.Info, sentOn.Count > 0
+                    ? $"mDNS query sent on {string.Join(", ", sentOn)}"
+                    : "mDNS query was not sent on any adapter");
 
                 // Listen for responses
                 var deadline = DateTime.UtcNow.AddMilliseconds(scanDurationMs);
@@ -207,6 +255,32 @@ namespace SsdpCore
             var list = results.Values.ToList();
             _log(TraceLevel.Info, $"mDNS scan complete: {list.Count} service(s) found");
             return list;
+        }
+
+        /// <summary>One IPv4 address per live adapter the query is sent on: up, not loopback, not
+        /// tunnel, and not a self-assigned 169.254.x.x address. Pure: the adapters are passed in.</summary>
+        internal static List<(IPAddress Address, string Adapter)> SendAddresses(
+            IEnumerable<(string Name, OperationalStatus Status, NetworkInterfaceType Type, IEnumerable<IPAddress> Addresses)> adapters)
+        {
+            var result = new List<(IPAddress Address, string Adapter)>();
+            if (adapters == null) return result;
+
+            foreach (var a in adapters)
+            {
+                if (a.Status != OperationalStatus.Up) continue;
+                if (a.Type == NetworkInterfaceType.Loopback) continue;
+                if (a.Type == NetworkInterfaceType.Tunnel) continue;
+                if (a.Addresses == null) continue;
+
+                foreach (var addr in a.Addresses)
+                {
+                    if (addr == null || addr.AddressFamily != AddressFamily.InterNetwork) continue;
+                    var b = addr.GetAddressBytes();
+                    if (b[0] == 169 && b[1] == 254) continue; // self-assigned (link-local): no DHCP, no LAN
+                    result.Add((addr, a.Name));
+                }
+            }
+            return result;
         }
 
         // --- DNS packet building ---
