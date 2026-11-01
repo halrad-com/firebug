@@ -105,4 +105,51 @@ public class MdnsScannerTests
         var adapters = new[] { ("Ethernet", OperationalStatus.Up, NetworkInterfaceType.Ethernet, (IEnumerable<IPAddress>)new[] { IPAddress.Parse("169.254.1.1") }) };
         Assert.Empty(MdnsScanner.SendAddresses(adapters));
     }
+
+    // How results are keyed. A Google Cast speaker group is announced by its lead speaker,
+    // at the leader's IP, under its own instance name and port. Keyed by IP (the default,
+    // which the Devialet scan relies on) one of the two is dropped; keyed by instance name
+    // both survive.
+
+    private static MdnsService Svc(string name, string ip, ushort port) => new MdnsService
+    {
+        Name = name, IPAddress = ip, Port = port, HostName = name + ".local", ServiceType = "_googlecast._tcp",
+    };
+
+    private static List<MdnsService> Keyed(MdnsScanKey key, params MdnsService[] services)
+    {
+        var results = new Dictionary<string, MdnsService>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in services) MdnsScanner.TryAddResult(results, s, key);
+        return results.Values.ToList();
+    }
+
+    [Fact]
+    public void TwoInstancesOnOneIp_KeyedByIp_TheFirstWins()
+    {
+        var leader = Svc("Nest-Audio-aaa", "192.168.1.30", 8009);
+        var group = Svc("Google-Cast-Group-bbb", "192.168.1.30", 32187);
+        var found = Keyed(MdnsScanKey.IpAddress, leader, group);
+        Assert.Same(leader, Assert.Single(found));
+    }
+
+    [Fact]
+    public void TwoInstancesOnOneIp_KeyedByInstanceName_BothSurvive()
+    {
+        var leader = Svc("Nest-Audio-aaa", "192.168.1.30", 8009);
+        var group = Svc("Google-Cast-Group-bbb", "192.168.1.30", 32187);
+        var found = Keyed(MdnsScanKey.InstanceName, leader, group);
+        Assert.Equal(2, found.Count);
+        Assert.Contains(leader, found);
+        Assert.Contains(group, found);
+    }
+
+    [Fact]
+    public void TheSameInstanceTwice_KeyedByInstanceName_IsReportedOnce()
+    {
+        // Each scan sends its query twice, so a receiver answers twice.
+        var first = Svc("Nest-Audio-aaa", "192.168.1.30", 8009);
+        var again = Svc("Nest-Audio-aaa", "192.168.1.30", 8009);
+        var found = Keyed(MdnsScanKey.InstanceName, first, again);
+        Assert.Same(first, Assert.Single(found));
+    }
 }

@@ -41,9 +41,25 @@ namespace SsdpCore
         /// <summary>
         /// Scan for mDNS services of the given types. Sends PTR queries for each
         /// service type and listens for responses for the scan duration.
+        /// Results are keyed by IP address, first in wins: one service per device.
+        /// </summary>
+        public Task<List<MdnsService>> ScanAsync(
+            IEnumerable<string> serviceTypes,
+            int scanDurationMs = 4000,
+            CancellationToken cancellationToken = default)
+        {
+            return ScanAsync(serviceTypes, MdnsScanKey.IpAddress, scanDurationMs, cancellationToken);
+        }
+
+        /// <summary>
+        /// Scan for mDNS services of the given types, keying the results as <paramref name="key"/>
+        /// says. <see cref="MdnsScanKey.InstanceName"/> keeps every service instance a device
+        /// announces: a Google Cast speaker group is announced by its lead speaker, at the
+        /// leader's IP, under its own instance name and port, and keying by IP drops one of them.
         /// </summary>
         public async Task<List<MdnsService>> ScanAsync(
             IEnumerable<string> serviceTypes,
+            MdnsScanKey key,
             int scanDurationMs = 4000,
             CancellationToken cancellationToken = default)
         {
@@ -64,7 +80,7 @@ namespace SsdpCore
             {
                 try
                 {
-                    return await ScanInternalAsync(serviceTypes.ToList(), scanDurationMs, linked.Token);
+                    return await ScanInternalAsync(serviceTypes.ToList(), key, scanDurationMs, linked.Token);
                 }
                 finally
                 {
@@ -81,11 +97,40 @@ namespace SsdpCore
             int scanDurationMs = 4000,
             CancellationToken cancellationToken = default)
         {
-            return ScanAsync(new[] { serviceType }, scanDurationMs, cancellationToken);
+            return ScanAsync(new[] { serviceType }, MdnsScanKey.IpAddress, scanDurationMs, cancellationToken);
+        }
+
+        /// <summary>
+        /// Convenience overload for a single service type, keyed as <paramref name="key"/> says.
+        /// </summary>
+        public Task<List<MdnsService>> ScanAsync(
+            string serviceType,
+            MdnsScanKey key,
+            int scanDurationMs = 4000,
+            CancellationToken cancellationToken = default)
+        {
+            return ScanAsync(new[] { serviceType }, key, scanDurationMs, cancellationToken);
+        }
+
+        /// <summary>
+        /// The dedupe decision, pure so it is testable without a socket: adds
+        /// <paramref name="svc"/> under its key unless that key is already taken (first in
+        /// wins). False when it was a duplicate.
+        /// </summary>
+        internal static bool TryAddResult(Dictionary<string, MdnsService> results, MdnsService svc, MdnsScanKey key)
+        {
+            // Name is the instance label (before "._type"); with the type it is the whole
+            // instance name. A record without one falls back to its IP.
+            var k = key == MdnsScanKey.InstanceName && !string.IsNullOrEmpty(svc.Name)
+                ? svc.Name + "." + svc.ServiceType
+                : svc.IPAddress;
+            if (k == null || results.ContainsKey(k)) return false;
+            results[k] = svc;
+            return true;
         }
 
         private async Task<List<MdnsService>> ScanInternalAsync(
-            List<string> serviceTypes, int scanDurationMs, CancellationToken ct)
+            List<string> serviceTypes, MdnsScanKey key, int scanDurationMs, CancellationToken ct)
         {
             var types = serviceTypes.Select(NormalizeServiceType).ToList();
             var typesDisplay = string.Join(", ", types);
@@ -216,9 +261,8 @@ namespace SsdpCore
                         var services = ParseDnsResponse(data, remoteEp.Address, types);
                         foreach (var svc in services)
                         {
-                            if (!results.ContainsKey(svc.IPAddress))
+                            if (TryAddResult(results, svc, key))
                             {
-                                results[svc.IPAddress] = svc;
                                 _log(TraceLevel.Info, $"Found: {svc.Name} at {svc.IPAddress}:{svc.Port} ({svc.ServiceType})");
                                 ServiceFound?.Invoke(this, svc);
                             }
@@ -630,5 +674,17 @@ namespace SsdpCore
             try { _disposeCts.Cancel(); } catch { }
             ServiceFound = null;
         }
+    }
+
+    /// <summary>How <see cref="MdnsScanner"/> keys its results; the first service under a key wins.</summary>
+    public enum MdnsScanKey
+    {
+        /// <summary>One service per IP address (the default): a device that announces the same
+        /// service more than once is reported once.</summary>
+        IpAddress = 0,
+
+        /// <summary>One service per service instance name: every instance a device announces is
+        /// reported, so several services on one IP all survive.</summary>
+        InstanceName = 1,
     }
 }

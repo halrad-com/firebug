@@ -76,7 +76,7 @@ Request queue name: Request queue is unnamed.
     [Fact]
     public void Wildcard_registration_names_the_owning_process()
     {
-        var r = Assert.Single(PortOwner.Parse(Dump).Where(x => x.Port == 8080));
+        var r = Assert.Single(PortOwner.Parse(Dump), x => x.Port == 8080);
         Assert.Equal(21404, r.Pid);
         Assert.Equal(@"C:\test\MB3\MusicBee.exe", r.Image);
     }
@@ -87,14 +87,14 @@ Request queue name: Request queue is unnamed.
     [Fact]
     public void Explicit_ip_registration_reads_the_port_not_the_trailing_ip()
     {
-        var overlay = Assert.Single(PortOwner.Parse(Dump).Where(x => x.Url.IndexOf("OVERLAY", System.StringComparison.OrdinalIgnoreCase) >= 0));
+        var overlay = Assert.Single(PortOwner.Parse(Dump), x => x.Url.IndexOf("OVERLAY", System.StringComparison.OrdinalIgnoreCase) >= 0);
         Assert.Equal(8081, overlay.Port);
     }
 
     // IPv6 literals are full of colons; the bracket is what delimits the host.
     [Fact]
     public void IPv6_literal_registration_reads_its_port()
-        => Assert.Single(PortOwner.Parse(Dump).Where(x => x.Port == 28391));
+        => Assert.Single(PortOwner.Parse(Dump), x => x.Port == 28391);
 
     // One process can hold several request queues - the Shell holds its META
     // surfaces and the overlay bridge separately - so a parser must accumulate
@@ -113,7 +113,7 @@ Request queue name: Request queue is unnamed.
     [Fact]
     public void Unresolved_image_keeps_the_pid_and_nulls_the_name()
     {
-        var r = Assert.Single(PortOwner.Parse(Dump).Where(x => x.Port == 28390));
+        var r = Assert.Single(PortOwner.Parse(Dump), x => x.Port == 28390);
         Assert.Equal(4144, r.Pid);
         Assert.Null(r.Image);
     }
@@ -130,6 +130,6 @@ Request queue name: Request queue is unnamed.
     [InlineData("")]
     [InlineData(null)]
     [InlineData("total gibberish, no registrations here")]
-    public void Junk_input_yields_nothing_and_does_not_throw(string input)
+    public void Junk_input_yields_nothing_and_does_not_throw(string? input)
         => Assert.Empty(PortOwner.Parse(input));
 }

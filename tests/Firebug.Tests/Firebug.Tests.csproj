@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- -windows, not plain net10.0: the subjects under test (FirebugManager,
+         PortOwner, PortPicker) are [SupportedOSPlatform("windows")], so a
+         cross-platform test assembly makes every call site a CA1416. The suite
+         can only run on Windows anyway — netsh, http.sys, the firewall COM API. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>Firebug.Tests</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -22,7 +26,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Firebug\Firebug.csproj" />
-    <!-- net48 library referenced from net8.0, the same way MBXHub.Shell consumes it. -->
     <ProjectReference Include="..\..\src\SsdpCore\SsdpCore.csproj" />
   </ItemGroup>
 

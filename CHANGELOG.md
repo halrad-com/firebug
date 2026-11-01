@@ -28,6 +28,9 @@
     every row to PID 0; the fixture now mirrors real output
   - LIVE state, not configuration: a process that is not running has registered nothing,
     so no rows means "not listening", never "not configured"
+- **`HasAnyRuleForPorts` / `TryAnyRuleForPorts` - does any enabled inbound rule, whatever its name, let these ports in to the caller's program?** Rules scoped to a service (the built-in mDNS, SSDP and WSD rules) do not count, rules scoped to an application count only for the paths passed in, a block among the rules that apply still wins, and an unreadable rule set returns null from `TryAnyRuleForPorts` and false from `HasAnyRuleForPorts`
+  - Rules scoped to a Store app package do not count either, and neither does a rule whose service is `*` ("services only" - scoped, not "any program")
+  - `FindBlockingRule` / `BlockingRule` name the block rule that keeps a port shut, under the same scope rules, so a status surface can say which rule to look at; null when nothing blocks or the rule set cannot be read
 
 ### Fixed
 - **`PortPicker.IsFree` tested only IPv4, so it called occupied ports free.** It bound
@@ -41,6 +44,9 @@
   machine with IPv6 disabled does not report every port taken
 
 ## SsdpCore [Unreleased]
+
+### Added
+- **`MdnsScanner.ScanAsync` can key results by service instance name.** New overloads take an `MdnsScanKey`: `IpAddress` (the default, and what the existing overloads still do) keeps one service per IP, first in wins; `InstanceName` keeps every instance a device announces. A Google Cast speaker group is announced by its lead speaker, at the leader's IP, under its own instance name and port, so keying by IP dropped either the group or the leader. The Devialet scan relies on IP dedupe and is unchanged. The existing signatures are kept, so already-compiled consumers still bind; the dedupe decision is a pure helper pinned by tests
 
 ### Fixed
 - **`MdnsScanner` asks for a multicast reply, not a unicast one.** The PTR query set the unicast-response bit. Google Cast receivers honor it and answer unicast to port 5353, and on Windows a unicast datagram to that port goes to the DNS Client service, which bound it first, never to the scanner's socket. Measured on one box with the scanner's own bind recipe: 0 of 4 Cast receivers with the bit, 4 of 4 without. Devialet and HTTP responders answered multicast regardless, which is why it never showed before a caller asked for `_googlecast._tcp`

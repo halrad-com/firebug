@@ -118,6 +118,7 @@ namespace Firebug
         /// </summary>
         /// <param name="savedPort">Port stored in settings, or 0/negative if none.</param>
         /// <param name="preferred">Preferred starting port when picking fresh.</param>
+        /// <param name="log">Optional sink for progress lines; null logs nothing.</param>
         public static int Resolve(int savedPort, int preferred = 8000, Action<string> log = null)
         {
             if (savedPort > 0 && IsFree(savedPort))

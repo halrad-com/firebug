@@ -123,6 +123,62 @@ namespace Firebug
         }
 
         /// <summary>
+        /// Does ANY enabled inbound rule, whatever its name, let these ports in to the
+        /// caller's program? <c>null</c> when the rule set cannot be read (COM unavailable).
+        ///
+        /// <para>The name-scoped checks above answer "is OUR rule healthy". An audit asks a
+        /// different question — will the traffic arrive — so a rule counts under any name.
+        /// It does NOT count under any scope: Windows applies a rule only to the program or
+        /// service it names, and a built-in Windows rule scoped to a service does not admit
+        /// traffic to another program. "mDNS (UDP-In)" is scoped to the dnscache service,
+        /// "Network Discovery (SSDP-In)" to Ssdpsrv, "(WSD-In)" to fdphost / dashost — they
+        /// let the port in to THOSE services, never to the caller's socket. That is why
+        /// scope is checked (see <see cref="AnyRuleAllows"/>). Block still wins, under any
+        /// name, among the rules that apply.</para>
+        ///
+        /// <para>No netsh fallback here: the fallback is a presence check by name, and a
+        /// name-less question has no rule to show. Callers that want one compose it on
+        /// <c>null</c> themselves.</para>
+        /// </summary>
+        /// <param name="protocol">"TCP", "UDP", or null for either.</param>
+        /// <param name="ports">Comma-separated numeric ports one rule must cover (e.g.
+        /// "1900,3702"). Null, empty or non-numeric answers false.</param>
+        /// <param name="applicationPaths">Full paths of the caller's executables. A rule
+        /// scoped to an application counts only when its path is one of these; null means
+        /// only unscoped rules count.</param>
+        public bool? TryAnyRuleForPorts(string protocol, string ports, IEnumerable<string> applicationPaths = null)
+        {
+            var rules = TryEnumerateRules();
+            if (rules == null) return null;   // COM unavailable — unknown, the caller decides
+            return AnyRuleAllows(rules, ProtocolNumber(protocol), ports, applicationPaths);
+        }
+
+        /// <summary>
+        /// <see cref="TryAnyRuleForPorts"/> with "cannot read the rule set" reported as
+        /// false — unknown, never guessed healthy. A built-in Windows rule scoped to a
+        /// service does not admit traffic to another program, so it does not count here.
+        /// </summary>
+        public bool HasAnyRuleForPorts(string protocol, string ports, IEnumerable<string> applicationPaths = null)
+            => TryAnyRuleForPorts(protocol, ports, applicationPaths) ?? false;
+
+        /// <summary>
+        /// The name of the enabled inbound block rule that keeps these ports shut for the
+        /// caller's program (see <see cref="BlockingRule"/> for the scope rules), so a
+        /// status surface can say which rule to look at. Null when nothing blocks — and
+        /// also when the rule set cannot be read (COM unavailable): no rule can be named.
+        /// </summary>
+        /// <param name="protocol">"TCP", "UDP", or null for either.</param>
+        /// <param name="ports">Comma-separated numeric ports (e.g. "5353").</param>
+        /// <param name="applicationPaths">Full paths of the caller's executables, as for
+        /// <see cref="TryAnyRuleForPorts"/>.</param>
+        public string FindBlockingRule(string protocol, string ports, IEnumerable<string> applicationPaths = null)
+        {
+            var rules = TryEnumerateRules();
+            if (rules == null) return null;   // COM unavailable — nothing to name
+            return BlockingRule(rules, ProtocolNumber(protocol), ports, applicationPaths);
+        }
+
+        /// <summary>
         /// The ports a rule ALREADY admits, so a caller can add to them instead of
         /// replacing them. Empty string when the rule does not exist, admits nothing, or
         /// cannot be read.
@@ -210,11 +266,47 @@ namespace Firebug
             public int Protocol { get; }
             /// <summary>netsh/COM form: "8080", "8080,8081", "5000-5010", "*".</summary>
             public string LocalPorts { get; }
+            /// <summary>Program the rule is scoped to; null, empty or "*" means any program.</summary>
+            public string ApplicationName { get; }
+            /// <summary>Service the rule is scoped to (COM <c>serviceName</c>). Null or empty
+            /// means not service-scoped; "*" means "services only", which is scoped.</summary>
+            public string ServiceName { get; }
+            /// <summary>Store app (AppContainer) package the rule is scoped to (INetFwRule3
+            /// <c>LocalAppPackageId</c>); null or empty means not package-scoped.</summary>
+            public string LocalAppPackageId { get; }
+            /// <summary>True when reading the rule's scope (application, service or package)
+            /// threw, so the scope fields above may be null for want of an answer rather
+            /// than because the rule is unscoped. Such a rule never counts as an allow (it
+            /// may be a service-scoped allow that would false-green the port) and always
+            /// counts as a block (errs safe).</summary>
+            public bool ScopeUnreadable { get; }
 
+            /// <summary>An unscoped rule (any program, no service, no package).</summary>
             public FirewallRuleView(string name, bool enabled, bool inbound, bool allow, int protocol, string localPorts)
+                : this(name, enabled, inbound, allow, protocol, localPorts, null, null, null)
+            {
+            }
+
+            public FirewallRuleView(string name, bool enabled, bool inbound, bool allow, int protocol, string localPorts,
+                string applicationName, string serviceName)
+                : this(name, enabled, inbound, allow, protocol, localPorts, applicationName, serviceName, null)
+            {
+            }
+
+            public FirewallRuleView(string name, bool enabled, bool inbound, bool allow, int protocol, string localPorts,
+                string applicationName, string serviceName, string localAppPackageId)
+                : this(name, enabled, inbound, allow, protocol, localPorts, applicationName, serviceName, localAppPackageId, false)
+            {
+            }
+
+            public FirewallRuleView(string name, bool enabled, bool inbound, bool allow, int protocol, string localPorts,
+                string applicationName, string serviceName, string localAppPackageId, bool scopeUnreadable)
             {
                 Name = name; Enabled = enabled; Inbound = inbound;
                 Allow = allow; Protocol = protocol; LocalPorts = localPorts;
+                ApplicationName = applicationName; ServiceName = serviceName;
+                LocalAppPackageId = localAppPackageId;
+                ScopeUnreadable = scopeUnreadable;
             }
         }
 
@@ -240,6 +332,116 @@ namespace Firebug
                 allowed = true;
             }
             return allowed;
+        }
+
+        /// <summary>
+        /// <see cref="RulesAllow"/> with no name filter, and with scope checked: every
+        /// enabled inbound rule of the protocol whose <c>LocalPorts</c> cover
+        /// <paramref name="wantedPorts"/>, and that applies to the caller, is considered.
+        ///
+        /// <para>Scope, because Windows applies a rule only to the program or service it
+        /// names, and a built-in Windows rule scoped to a service does not admit traffic to
+        /// another program ("mDNS (UDP-In)" lets 5353 in to dnscache, not to the caller's
+        /// socket). So: a rule scoped to a service (including "*", "services only") or to a
+        /// Store app package never counts, allow or block; a rule scoped to an application
+        /// counts only when <paramref name="applicationPaths"/> lists it; an unscoped rule
+        /// counts.</para>
+        ///
+        /// <para>Among the rules that count, an enabled inbound BLOCK covering the ports is
+        /// decisive (block wins); otherwise true when at least one allow covers them.
+        /// Coverage is per rule, as <see cref="PortsCovered"/> decides it — two rules each
+        /// admitting one of the wanted ports do not add up to a rule that admits both.
+        /// Null, empty or non-numeric <paramref name="wantedPorts"/> is false: without a
+        /// name or a port the question is "does any allow exist on the box", which is
+        /// true everywhere and means nothing.</para>
+        /// </summary>
+        public static bool AnyRuleAllows(IEnumerable<FirewallRuleView> rules, int protocol, string wantedPorts,
+            IEnumerable<string> applicationPaths = null)
+        {
+            if (rules == null || !AllPortsNumeric(wantedPorts)) return false;
+
+            var allowed = false;
+            foreach (var r in rules)
+            {
+                if (!Counts(r, protocol, wantedPorts, applicationPaths)) continue;
+                if (!r.Allow) return false;   // block wins, whatever it is named
+                allowed = true;
+            }
+            return allowed;
+        }
+
+        /// <summary>
+        /// The <c>Name</c> of the first enabled inbound BLOCK rule that keeps
+        /// <paramref name="wantedPorts"/> shut for the caller, else null. Same scope rules
+        /// as <see cref="AnyRuleAllows"/>: a service- or package-scoped block never counts,
+        /// an application-scoped block counts only when <paramref name="applicationPaths"/>
+        /// lists it, an unscoped block counts. Null, empty or non-numeric
+        /// <paramref name="wantedPorts"/> is null, as it is false there.
+        /// </summary>
+        public static string BlockingRule(IEnumerable<FirewallRuleView> rules, int protocol, string wantedPorts,
+            IEnumerable<string> applicationPaths = null)
+        {
+            if (rules == null || !AllPortsNumeric(wantedPorts)) return null;
+
+            foreach (var r in rules)
+            {
+                if (r.Allow) continue;
+                if (Counts(r, protocol, wantedPorts, applicationPaths)) return r.Name;
+            }
+            return null;
+        }
+
+        /// <summary>Does this rule apply to the caller's traffic on these ports? Enabled,
+        /// inbound, protocol and per-rule port coverage, then scope (see
+        /// <see cref="AnyRuleAllows"/>). Allow or block is the caller's question.</summary>
+        private static bool Counts(FirewallRuleView r, int protocol, string wantedPorts, IEnumerable<string> applicationPaths)
+        {
+            if (!r.Enabled || !r.Inbound) return false;
+            if (!ProtocolMatches(r.Protocol, protocol)) return false;
+            if (!PortsCovered(r.LocalPorts, wantedPorts)) return false;
+            if (r.ScopeUnreadable) return !r.Allow;   // unknown scope: never an allow (may be a service's), always a block (errs safe)
+            if (!string.IsNullOrWhiteSpace(r.ServiceName)) return false;        // admits a service ("*" = services only), not the caller
+            if (!string.IsNullOrWhiteSpace(r.LocalAppPackageId)) return false;  // admits a Store app package, not the caller
+            return IsAnyApplication(r.ApplicationName) || PathListed(r.ApplicationName, applicationPaths);
+        }
+
+        /// <summary>At least one port, and every token a number.</summary>
+        private static bool AllPortsNumeric(string ports)
+        {
+            if (string.IsNullOrWhiteSpace(ports)) return false;
+            foreach (var token in ports.Split(','))
+                if (!int.TryParse(token.Trim(), out _)) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Does this <c>ApplicationName</c> mean "any program"? Null or empty is what COM
+        /// reports for an unscoped rule (measured: 159 of 744 rules on a dev box, none ""
+        /// or "*"). "*" is ALSO read as any program, but that reading is unconfirmed: the
+        /// INetFwRule docs define "*" only for <c>serviceName</c> (where it means "services
+        /// only", so it is scoped), and COM was not seen to report "*" as an application.
+        /// </summary>
+        private static bool IsAnyApplication(string applicationName)
+            => string.IsNullOrWhiteSpace(applicationName) || applicationName.Trim() == "*";
+
+        private static bool PathListed(string rulePath, IEnumerable<string> applicationPaths)
+        {
+            if (applicationPaths == null) return false;
+            var wanted = NormalizePath(rulePath);
+            foreach (var p in applicationPaths)
+            {
+                if (string.IsNullOrWhiteSpace(p)) continue;
+                if (string.Equals(NormalizePath(p), wanted, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        /// <summary><c>Path.GetFullPath</c> where parsable; otherwise the trimmed input.</summary>
+        private static string NormalizePath(string path)
+        {
+            var t = path.Trim();
+            try { return System.IO.Path.GetFullPath(t); }
+            catch { return t; }
         }
 
         /// <summary>256 (any) on either side matches everything; otherwise exact.</summary>
@@ -313,18 +515,9 @@ namespace Firebug
                 foreach (var rule in list)
                 {
                     if (rule == null) continue;
-                    try
-                    {
-                        var t = rule.GetType();
-                        views.Add(new FirewallRuleView(
-                            Get(t, rule, "Name") as string,
-                            Get(t, rule, "Enabled") is bool en && en,
-                            Convert.ToInt32(Get(t, rule, "Direction")) == 1,   // NET_FW_RULE_DIR_IN
-                            Convert.ToInt32(Get(t, rule, "Action")) == 1,      // NET_FW_ACTION_ALLOW
-                            Convert.ToInt32(Get(t, rule, "Protocol")),
-                            Get(t, rule, "LocalPorts") as string));
-                    }
-                    catch { /* one unreadable rule must not blind the whole sweep */ }
+                    var t = rule.GetType();
+                    var view = Project(property => Get(t, rule, property));
+                    if (view.HasValue) views.Add(view.Value);
                 }
                 return views;
             }
@@ -332,6 +525,50 @@ namespace Firebug
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// One rule reduced to a <see cref="FirewallRuleView"/>, reading each property
+        /// through <paramref name="get"/> (COM property name to value). Null when a core
+        /// field (name, enabled, direction, action, protocol, ports) cannot be read — a
+        /// rule missing one of those cannot be reasoned about.
+        ///
+        /// <para>The scope reads — <c>ApplicationName</c>, <c>serviceName</c>,
+        /// <c>LocalAppPackageId</c> — each sit in their own try, so a rule whose one
+        /// property throws is kept with that property null instead of being dropped for
+        /// every consumer, blocks included (review F-5). A throw on any of the three marks
+        /// the view <see cref="FirewallRuleView.ScopeUnreadable"/>: it may be a
+        /// service-scoped allow, so it never counts as an allow; it always counts as a
+        /// block, which errs safe.</para>
+        /// </summary>
+        internal static FirewallRuleView? Project(Func<string, object> get)
+        {
+            try
+            {
+                var unreadable = false;
+                var app = Optional(get, "ApplicationName", ref unreadable);
+                var service = Optional(get, "serviceName", ref unreadable);        // INetFwRule spells it lower-case
+                var package = Optional(get, "LocalAppPackageId", ref unreadable);  // INetFwRule3 only
+
+                return new FirewallRuleView(
+                    get("Name") as string,
+                    get("Enabled") is bool en && en,
+                    Convert.ToInt32(get("Direction")) == 1,   // NET_FW_RULE_DIR_IN
+                    Convert.ToInt32(get("Action")) == 1,      // NET_FW_ACTION_ALLOW
+                    Convert.ToInt32(get("Protocol")),
+                    get("LocalPorts") as string,
+                    app, service, package, unreadable);
+            }
+            catch
+            {
+                return null;   // one unreadable rule must not blind the whole sweep
+            }
+        }
+
+        private static string Optional(Func<string, object> get, string property, ref bool unreadable)
+        {
+            try { return get(property) as string; }
+            catch { unreadable = true; return null; }
         }
 
         private static object Get(Type t, object target, string property)
